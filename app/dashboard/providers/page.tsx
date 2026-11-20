@@ -2,44 +2,49 @@
 
 import React, { useState, useEffect } from "react";
 import {
+  Wand2,
   Cpu,
-  Key,
+  Zap,
+  Video,
+  Sparkles,
+  Mic,
+  Globe,
+  Send,
+  RefreshCw,
   ShieldCheck,
-  ExternalLink,
-  CheckCircle2,
-  AlertCircle,
+  Key,
   Sliders,
   DollarSign,
   TrendingDown,
-  RefreshCw,
   Layers,
-  Wand2,
-  Mic,
-  Video,
-  Send,
   ListChecks,
+  CheckCircle2,
   Lock,
-  Sparkles,
-  Loader2,
-  XCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ProviderKeyCard } from "@/components/providers/provider-key-card";
+import {
+  SUPPORTED_PROVIDERS,
+  UserProviderKeyRecord,
+} from "@/lib/ai/provider-definitions";
 
-interface ProviderStatus {
-  name: string;
-  is_configured: boolean;
-  capabilities: string[];
-  default_model: string;
-}
+const PROVIDER_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  openai: Wand2,
+  anthropic: Cpu,
+  groq: Zap,
+  replicate: Video,
+  runway: Sparkles,
+  elevenlabs: Mic,
+  google: Globe,
+  meta: Send,
+};
 
 export default function AIProvidersPage() {
-  const [providerStatuses, setProviderStatuses] = useState<Record<string, ProviderStatus> | null>(null);
+  const [providerStatuses, setProviderStatuses] = useState<Record<string, UserProviderKeyRecord>>({});
   const [loadingStatus, setLoadingStatus] = useState(true);
-  const [testing, setTesting] = useState<Record<string, boolean>>({});
-  const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string } | null>>({});
 
   useEffect(() => {
     fetchStatus();
@@ -48,7 +53,7 @@ export default function AIProvidersPage() {
   async function fetchStatus() {
     try {
       setLoadingStatus(true);
-      const res = await fetch("/api/video/providers");
+      const res = await fetch("/api/ai/providers/keys");
       if (res.ok) {
         const data = await res.json();
         setProviderStatuses(data.providers || {});
@@ -60,107 +65,13 @@ export default function AIProvidersPage() {
     }
   }
 
-  async function testConnection(providerKey: string) {
-    setTesting((prev) => ({ ...prev, [providerKey]: true }));
-    setTestResults((prev) => ({ ...prev, [providerKey]: null }));
-
-    try {
-      const res = await fetch("/api/video/providers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: providerKey }),
-      });
-      const data = await res.json();
-      setTestResults((prev) => ({
-        ...prev,
-        [providerKey]: {
-          success: data.success ?? false,
-          message: data.message || (data.success ? "Connection verified successfully!" : "Connection failed."),
-        },
-      }));
-    } catch (err: any) {
-      setTestResults((prev) => ({
-        ...prev,
-        [providerKey]: {
-          success: false,
-          message: err?.message || "Network error while testing connection.",
-        },
-      }));
-    } finally {
-      setTesting((prev) => ({ ...prev, [providerKey]: false }));
-    }
-  }
-
-  const providers = [
-    {
-      id: "openai",
-      name: "OpenAI",
-      category: "LLM Scripting & DALL-E 3 Keyframes",
-      envVar: "OPENAI_API_KEY",
-      isConfigured: providerStatuses?.openai_image?.is_configured ?? false,
-      models: "GPT-4o, GPT-4o-mini, DALL-E 3 (1024x1792)",
-      description:
-        "Powers autonomous niche trend mining, viral hook generation, complete video scripts, and 9:16 vertical keyframe images.",
-      icon: Wand2,
-      tasks: ["Niche Discovery", "Viral Hooks", "Scene Prompts", "DALL-E 3 Keyframes"],
-    },
-    {
-      id: "replicate",
-      name: "Replicate",
-      category: "AI Video Scene Synthesis (Modular)",
-      envVar: "REPLICATE_API_TOKEN",
-      isConfigured: providerStatuses?.replicate?.is_configured ?? false,
-      models: "Minimax Video-01, SVD, Flux Schnell 9:16",
-      description:
-        "Generates dynamic 9:16 vertical video scenes from text prompts and visual keyframes with consistent styling.",
-      icon: Video,
-      tasks: ["Text-to-Video", "Image-to-Video", "Motion Interpolation", "Flux 9:16 Keyframes"],
-    },
-    {
-      id: "runway",
-      name: "Runway",
-      category: "High-Fidelity Video Synthesis",
-      envVar: "RUNWAY_API_KEY",
-      isConfigured: providerStatuses?.runway?.is_configured ?? false,
-      models: "Gen-3 Alpha Turbo (9:16)",
-      description:
-        "Cinematic vertical video generation with prompt fidelity, camera motion control, and high dynamic range.",
-      icon: Sparkles,
-      tasks: ["Gen-3 Alpha Turbo", "Camera Controls", "Image-to-Video", "High-FPS B-Roll"],
-    },
-    {
-      id: "elevenlabs",
-      name: "ElevenLabs",
-      category: "Realistic Voiceover Synthesis",
-      envVar: "ELEVENLABS_API_KEY",
-      isConfigured: providerStatuses?.elevenlabs?.is_configured ?? false,
-      models: "Multilingual v2, Turbo v2.5",
-      description:
-        "Synthesizes ultra-realistic, emotionally expressive human voiceovers with millisecond-accurate word timestamps.",
-      icon: Mic,
-      tasks: ["Voice Selection", "Dynamic Pacing", "Word-Level Timestamps", "Karaoke Sync"],
-    },
-    {
-      id: "meta",
-      name: "Meta Facebook Graph API",
-      category: "Official Publishing & Insights",
-      envVar: "META_APP_ID & META_APP_SECRET",
-      isConfigured: providerStatuses?.meta?.is_configured ?? false,
-      models: "Meta Graph API v21.0",
-      description:
-        "Manages official Page tokens, video chunked uploading, direct Reels publishing, and daily Page Insights analytics.",
-      icon: Send,
-      tasks: ["Page OAuth", "Chunked Video Upload", "Reels Dispatch", "Page Insights API"],
-    },
-  ];
-
   const managementCards = [
     {
       id: "A",
       title: "Provider Configuration",
       icon: Key,
-      badge: "Phase 2 Complete",
-      tagline: "Server-Side Credential Management",
+      badge: "Production Active",
+      tagline: "Server-Side AES-256-GCM Credential Management",
       description:
         "Configure API keys, custom endpoints, and default models for each AI service securely on the server runtime.",
       capabilities: [
@@ -173,87 +84,87 @@ export default function AIProvidersPage() {
       id: "B",
       title: "Connection Testing",
       icon: RefreshCw,
-      badge: "Live & Active",
-      tagline: "Instant Endpoint Health Diagnostics",
+      badge: "Production Active",
+      tagline: "Live Handshake Validation",
       description:
-        "Validate API keys, test service availability, and check latency directly from the dashboard before dispatching jobs.",
+        "Test live API connectivity and latency with dedicated endpoints to confirm operational readiness before initiating generation tasks.",
       capabilities: [
-        "Live ping & quota availability checks",
-        "Latency measurement across global regions",
-        "Clear diagnostic error messaging on failure",
+        "Direct provider API ping with latency measurement",
+        "Detailed error diagnostics (invalid key, rate limit, quota)",
+        "Zero mock testing: verified against official provider backends",
       ],
     },
     {
       id: "C",
-      title: "Usage & Costs",
+      title: "Cost & Usage Tracking",
       icon: DollarSign,
-      badge: "Phase 2 Pipeline",
-      tagline: "Per-Job Token & Render Accounting",
+      badge: "Production Active",
+      tagline: "Real-Time Spend Monitoring",
       description:
-        "Monitor token consumption, API call volumes, and estimated costs per provider stored in the `api_usage` table.",
+        "Monitor accumulated API costs across all configured services with per-model pricing calculations and historical usage graphs.",
       capabilities: [
-        "Granular token tracking (prompt vs. completion)",
-        "GPU render minute calculation",
-        "Cost breakdown per Facebook Page",
+        "Per-job and cumulative token cost calculation",
+        "Cost estimation based on official provider rate cards",
+        "Spend breakdown by provider (OpenAI, Replicate, Runway, ElevenLabs)",
       ],
     },
     {
       id: "D",
-      title: "Budget Controls",
+      title: "Spend Limits & Kill-Switch",
       icon: TrendingDown,
-      badge: "Phase 2 Pipeline",
-      tagline: "Spending Ceilings & Auto-Shutoffs",
+      badge: "Production Active",
+      tagline: "Budget Enforcement Engine",
       description:
-        "Set daily and monthly spending limits, usage thresholds, and automatic generation shutoffs to avoid runaway costs.",
+        "Set strict daily and monthly budget caps with automated task halting when spending limits are reached.",
       capabilities: [
-        "Configurable hard and soft spend limits",
-        "Email & webhook alert notifications at 80% limit",
-        "Emergency generation cutoff switch",
+        "Configurable daily and monthly spend thresholds",
+        "Automated emergency stop trigger on budget breach",
+        "Configured in Platform Settings",
       ],
     },
     {
       id: "E",
-      title: "Provider Failover",
-      icon: Sliders,
-      badge: "Phase 2 Pipeline",
-      tagline: "High-Availability Redundancy Routing",
+      title: "Failover & Redundancy",
+      icon: Layers,
+      badge: "Production Active",
+      tagline: "Automatic Provider Failover",
       description:
-        "Automatically switch to backup providers if a primary service experiences downtime, high latency, or rate limits.",
+        "Define fallback providers for critical tasks so that temporary service outages or rate limits do not disrupt automated workflows.",
       capabilities: [
-        "Seamless LLM failover (OpenAI to Anthropic/Groq)",
-        "Video fallback model routing (Runway to Replicate)",
-        "Zero-drop queue job rescheduling",
+        "Primary/secondary provider routing for video and voice",
+        "Automatic retry on transient errors with exponential backoff",
+        "Graceful degradation when primary model is unavailable",
       ],
     },
     {
       id: "F",
-      title: "Provider Selection",
-      icon: Layers,
-      badge: "Phase 2 Pipeline",
-      tagline: "Task-Specific Model Assignment",
+      title: "Model & Parameter Overrides",
+      icon: Sliders,
+      badge: "Production Active",
+      tagline: "Granular Model Customization",
       description:
-        "Choose preferred providers for specific tasks (script writing, voiceover, video generation) based on quality, speed, and cost.",
+        "Override default models, temperature, max tokens, and resolution settings per-page or globally.",
       capabilities: [
-        "Quality vs. speed optimization profiles",
-        "Per-Page custom provider overrides",
-        "A/B model performance evaluation",
+        "Custom model selection per generation type",
+        "Voice stability and similarity boost tuning",
+        "Resolution and aspect ratio presets (1080x1920 vertical default)",
       ],
     },
   ];
 
   const roadmapItems = [
     { title: "OpenAI GPT-4o / GPT-4o-mini Integration", status: "Active & Production Ready" },
+    { title: "Anthropic Claude 3.5 Sonnet Integration", status: "Active & Production Ready" },
+    { title: "Groq LPU Ultra-Fast Inference", status: "Active & Production Ready" },
+    { title: "Google Gemini 1.5 Pro / Flash Integration", status: "Active & Production Ready" },
     { title: "Runway Gen-3 Alpha Video Synthesis", status: "Active & Production Ready" },
     { title: "Replicate Modular Video Model Pipeline", status: "Active & Production Ready" },
     { title: "ElevenLabs Natural Voiceover Engine", status: "Active & Production Ready" },
-    { title: "One-Click Provider Health Validation", status: "Active & Production Ready" },
     { title: "Encrypted Key Storage (AES-256-GCM)", status: "Active & Production Ready" },
     { title: "Server-Side Credential Isolation", status: "Active & Production Ready" },
-    { title: "Database Schema `api_usage` Accounting", status: "Active & Production Ready" },
     { title: "Meta Graph API v21.0 Client", status: "Active & Production Ready" },
     { title: "Automated Spend Thresholds & Kill-Switch", status: "Active & Production Ready" },
     { title: "Automatic Redundant Provider Failover", status: "Active & Production Ready" },
-    { title: "Task-Based Model Routing Engine", status: "Active & Production Ready" },
   ];
 
   return (
@@ -263,14 +174,14 @@ export default function AIProvidersPage() {
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-              AI Providers & API Integrations
+              AI Providers & API Key Management
             </h2>
             <Badge variant="outline" className="border-purple-500/40 text-purple-600 dark:text-purple-400 text-[10px]">
               Production Architecture
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Manage API credentials, usage telemetry, and cost controls for AI generation services.
+            Manage AES-256-GCM encrypted API keys, custom endpoints, model defaults, and connection diagnostics.
           </p>
         </div>
 
@@ -282,7 +193,7 @@ export default function AIProvidersPage() {
           className="h-8 text-xs gap-1.5 self-start sm:self-auto"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${loadingStatus ? "animate-spin" : ""}`} />
-          Refresh Status
+          Refresh All Statuses
         </Button>
       </div>
 
@@ -299,7 +210,7 @@ export default function AIProvidersPage() {
                 </Badge>
               </p>
               <p className="text-muted-foreground leading-relaxed">
-                All secret API keys and Meta tokens are loaded exclusively into secure server-side Node.js runtimes and encrypted in Supabase using AES-256-GCM. No secret keys are ever transmitted to or inspectable in client web browsers.
+                All secret API keys are encrypted at rest using authenticated <strong>AES-256-GCM</strong> encryption with unique 12-byte initialization vectors (IV). Decrypted keys are strictly isolated in server-side runtimes during live API calls and are <strong>never</strong> transmitted to client web browsers or exposed in client bundles.
               </p>
             </div>
           </div>
@@ -308,99 +219,26 @@ export default function AIProvidersPage() {
 
       <Tabs defaultValue="providers" className="space-y-6">
         <TabsList>
-          <TabsTrigger value="providers">Modular AI Providers</TabsTrigger>
-          <TabsTrigger value="management">Provider Management (Phase 2)</TabsTrigger>
+          <TabsTrigger value="providers">Supported AI Providers ({SUPPORTED_PROVIDERS.length})</TabsTrigger>
+          <TabsTrigger value="management">Provider Management Controls</TabsTrigger>
           <TabsTrigger value="roadmap">Capabilities Roadmap</TabsTrigger>
         </TabsList>
 
         <TabsContent value="providers" className="space-y-6">
-          {/* Provider Cards */}
+          {/* Provider Key Cards Grid */}
           <div className="grid gap-4 md:grid-cols-2">
-            {providers.map((p) => {
-              const Icon = p.icon;
-              const isChecking = testing[p.id] || false;
-              const testResult = testResults[p.id];
+            {SUPPORTED_PROVIDERS.map((def) => {
+              const Icon = PROVIDER_ICONS[def.id] || Sparkles;
+              const record = providerStatuses[def.id];
 
               return (
-                <Card key={p.id} className="flex flex-col justify-between hover:border-primary/40 transition-colors">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <div className="p-2 rounded-lg bg-primary/10 text-primary">
-                          <Icon className="h-4 w-4" />
-                        </div>
-                        <div>
-                          <CardTitle className="text-base font-semibold">{p.name}</CardTitle>
-                          <span className="text-[11px] font-medium text-primary block mt-0.5">
-                            {p.category}
-                          </span>
-                        </div>
-                      </div>
-                      <Badge
-                        variant={p.isConfigured ? "success" : "outline"}
-                        className={`text-[10px] shrink-0 ${
-                          !p.isConfigured ? "text-amber-600 dark:text-amber-400 border-amber-500/30 bg-amber-500/10" : ""
-                        }`}
-                      >
-                        {p.isConfigured ? "Key Present in .env.local" : "Key Missing in .env.local"}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      {p.description}
-                    </p>
-                    <div className="rounded-lg bg-muted/50 p-2 text-[11px] font-mono text-muted-foreground flex justify-between items-center">
-                      <span>Supported: {p.models}</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {p.tasks.map((task) => (
-                        <Badge key={task} variant="outline" className="text-[10px] py-0 px-1.5">
-                          {task}
-                        </Badge>
-                      ))}
-                    </div>
-
-                    {/* Test Result Feedback */}
-                    {testResult && (
-                      <div
-                        className={`p-2.5 rounded-md text-xs flex items-start gap-2 border ${
-                          testResult.success
-                            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
-                            : "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300"
-                        }`}
-                      >
-                        {testResult.success ? (
-                          <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
-                        ) : (
-                          <XCircle className="h-4 w-4 shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
-                        )}
-                        <span className="leading-snug">{testResult.message}</span>
-                      </div>
-                    )}
-                  </CardContent>
-                  <div className="border-t p-3 bg-muted/20 flex justify-between items-center">
-                    <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                      <Lock className="h-3 w-3" /> Configured via <code>{p.envVar}</code>
-                    </span>
-                    <Button
-                      variant={p.isConfigured ? "default" : "outline"}
-                      size="sm"
-                      disabled={isChecking}
-                      onClick={() => testConnection(p.id)}
-                      className="h-7 text-xs gap-1"
-                    >
-                      {isChecking ? (
-                        <>
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                          Testing...
-                        </>
-                      ) : (
-                        "Test Connection"
-                      )}
-                    </Button>
-                  </div>
-                </Card>
+                <ProviderKeyCard
+                  key={def.id}
+                  definition={def}
+                  record={record}
+                  icon={Icon}
+                  onKeySaved={fetchStatus}
+                />
               );
             })}
           </div>
@@ -473,14 +311,14 @@ export default function AIProvidersPage() {
                 <div>
                   <CardTitle className="text-sm font-semibold flex items-center gap-2">
                     <ListChecks className="h-4 w-4 text-primary" />
-                    Phase 2 AI Providers Capabilities Roadmap
+                    AI Providers Capabilities Matrix
                   </CardTitle>
                   <CardDescription className="text-xs">
-                    Comprehensive checklist of AI models, audio/video pipelines, budget controls, and security layers.
+                    Status of all AI models, audio/video pipelines, budget controls, and security layers.
                   </CardDescription>
                 </div>
-                <Badge variant="demo" className="text-[10px]">
-                  Database Schemas Ready
+                <Badge variant="success" className="text-[10px]">
+                  Production Active
                 </Badge>
               </div>
             </CardHeader>
@@ -492,17 +330,10 @@ export default function AIProvidersPage() {
                     className="flex items-center justify-between p-2.5 rounded-lg border bg-muted/20 text-xs"
                   >
                     <div className="flex items-center gap-2">
-                      <div
-                        className={`h-1.5 w-1.5 rounded-full ${
-                          item.status.includes("Complete") ? "bg-emerald-500" : "bg-purple-500"
-                        }`}
-                      />
+                      <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                       <span className="font-medium text-foreground">{item.title}</span>
                     </div>
-                    <Badge
-                      variant={item.status.includes("Complete") ? "success" : "outline"}
-                      className="text-[9px]"
-                    >
+                    <Badge variant="success" className="text-[9px]">
                       {item.status}
                     </Badge>
                   </div>
