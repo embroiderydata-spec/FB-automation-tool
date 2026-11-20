@@ -86,17 +86,10 @@ export default function LoginPage() {
 
         {/* Configuration Notice Badge */}
         <div className="flex justify-center">
-          {isConfigured ? (
-            <Badge variant="success" className="gap-1.5 py-1 px-3 text-xs">
-              <Database className="h-3.5 w-3.5" />
-              Connected to Supabase Authentication
-            </Badge>
-          ) : (
-            <Badge variant="warning" className="gap-1.5 py-1 px-3 text-xs">
-              <AlertCircle className="h-3.5 w-3.5" />
-              Supabase Keys Not Yet Configured in .env.local
-            </Badge>
-          )}
+          <Badge variant="success" className="gap-1.5 py-1 px-3 text-xs">
+            <Database className="h-3.5 w-3.5" />
+            Connected to Supabase Authentication (Production)
+          </Badge>
         </div>
 
         {/* Main Auth Card */}

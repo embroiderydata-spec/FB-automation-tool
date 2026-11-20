@@ -59,11 +59,22 @@ export const PageBrandingUpdateSchema = z.object({
   watermark_position: z
     .enum(["top_left", "top_right", "bottom_left", "bottom_right"])
     .default("bottom_right"),
-  watermark_size: z.number().min(0.05).max(0.5).default(0.15),
+  watermark_size: z.number().min(0.05).max(0.5).default(0.18),
   watermark_opacity: z.number().min(0.1).max(1.0).default(0.85),
-  brand_primary_color: z.string().max(20).default("#3b82f6"),
-  brand_secondary_color: z.string().max(20).default("#1d4ed8"),
+  brand_primary_color: z.string().max(20).default("#6366f1"),
+  brand_secondary_color: z.string().max(20).default("#4f46e5"),
   enable_watermark: z.boolean().default(true),
+  intro_video_url: z.string().url().optional().nullable().or(z.literal("")),
+  outro_video_url: z.string().url().optional().nullable().or(z.literal("")),
+  intro_duration_seconds: z.number().min(0.5).max(10).default(2.0),
+  outro_duration_seconds: z.number().min(0.5).max(15).default(3.0),
+  default_subtitle_preset: z
+    .enum(["classic", "bold_viral", "karaoke", "minimal", "highlight_keywords"])
+    .default("bold_viral"),
+  default_voice_id: z.string().default("21m00Tcm4TlvDq8ikWAM"),
+  default_bg_music_url: z.string().optional().nullable().or(z.literal("")),
+  video_ending_type: z.enum(["fade_to_black", "brand_card", "seamless_loop"]).default("brand_card"),
+  is_global: z.boolean().optional(),
 });
 
 export type VideoSceneGenerateInput = z.infer<typeof VideoSceneGenerateSchema>;

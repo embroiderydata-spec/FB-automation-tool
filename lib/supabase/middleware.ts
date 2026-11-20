@@ -61,17 +61,20 @@ export async function updateSession(request: NextRequest) {
   // Check Supabase session
   const { data: { user } } = await supabase.auth.getUser();
 
-  const demoSession = request.cookies.get("demo_auth_session")?.value;
+  // Check active persistent session or Supabase session
+  const hasPersistentSession =
+    Boolean(request.cookies.get("app_auth_session")?.value) ||
+    Boolean(request.cookies.get("demo_auth_session")?.value);
 
   // Redirect unauthenticated users from protected dashboard routes to /login
-  if (isProtectedPath && !user && !demoSession) {
+  if (isProtectedPath && !user && !hasPersistentSession) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
   // Redirect authenticated or active session users from /login to /dashboard
-  if (isAuthPath && (user || demoSession)) {
+  if (isAuthPath && (user || hasPersistentSession)) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);

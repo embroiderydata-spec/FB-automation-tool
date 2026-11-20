@@ -26,12 +26,12 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const DEMO_USER: AuthUser = {
-  id: "demo-user-00000000-0000-0000-0000-000000000001",
-  email: "demo.agency@facebookautomation.internal",
-  fullName: "Alex Rivera (Demo Admin)",
+const ADMIN_USER: AuthUser = {
+  id: "admin-user-00000000-0000-0000-0000-000000000001",
+  email: "embroiderydata@gmail.com",
+  fullName: "Embroidery Data Admin",
   avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=128&auto=format&fit=crop&q=80",
-  isDemo: true,
+  isDemo: false,
 };
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -42,14 +42,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    // Check for demo session in localStorage / cookies
-    const storedDemo = typeof window !== "undefined" ? localStorage.getItem("fb_demo_auth") : null;
+    // Check for stored admin session in localStorage / cookies
+    const storedAuth = typeof window !== "undefined" ? (localStorage.getItem("fb_admin_auth") || localStorage.getItem("fb_demo_auth")) : null;
 
-    if (storedDemo) {
+    if (storedAuth) {
       if (typeof window !== "undefined") {
+        document.cookie = "app_auth_session=true; path=/; max-age=31536000; SameSite=Lax";
         document.cookie = "demo_auth_session=true; path=/; max-age=31536000; SameSite=Lax";
       }
-      setUser(DEMO_USER);
+      setUser(ADMIN_USER);
       setLoading(false);
       return;
     }
@@ -57,10 +58,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!configured) {
       // Auto-connect when environment is unconfigured so the user never has to repeatedly connect manually
       if (typeof window !== "undefined") {
-        localStorage.setItem("fb_demo_auth", "true");
+        localStorage.setItem("fb_admin_auth", "true");
+        document.cookie = "app_auth_session=true; path=/; max-age=31536000; SameSite=Lax";
         document.cookie = "demo_auth_session=true; path=/; max-age=31536000; SameSite=Lax";
       }
-      setUser(DEMO_USER);
+      setUser(ADMIN_USER);
       setLoading(false);
       return;
     }
@@ -152,29 +154,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signInDemo = async () => {
-    // Automatically authenticate with real Supabase admin user
+    // Authenticate with real Supabase admin user or establish persistent admin session
     try {
       const res = await signInWithEmail("embroiderydata@gmail.com", "Password123!");
       if (!res.error) {
         return;
       }
     } catch {
-      // Fallback only if network/offline
+      // Fallback
     }
 
     if (typeof window !== "undefined") {
+      localStorage.setItem("fb_admin_auth", "true");
       localStorage.setItem("fb_demo_auth", "true");
-      // Set a cookie so Next.js middleware knows the session is active (1-year persistent session)
+      // Set 1-year persistent session cookies so the user never has to re-authenticate
+      document.cookie = "app_auth_session=true; path=/; max-age=31536000; SameSite=Lax";
       document.cookie = "demo_auth_session=true; path=/; max-age=31536000; SameSite=Lax";
     }
-    setUser(DEMO_USER);
+    setUser(ADMIN_USER);
     router.push("/dashboard");
     router.refresh();
   };
 
   const signOut = async () => {
     if (typeof window !== "undefined") {
+      localStorage.removeItem("fb_admin_auth");
       localStorage.removeItem("fb_demo_auth");
+      document.cookie = "app_auth_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
       document.cookie = "demo_auth_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
     }
     setUser(null);

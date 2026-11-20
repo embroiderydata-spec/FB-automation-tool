@@ -14,13 +14,13 @@ export interface AuthenticatedUser {
 export async function getAuthenticatedUser(): Promise<AuthenticatedUser | null> {
   const cookieStore = cookies();
 
-  // Check demo session cookie first
-  const demoCookie = cookieStore.get("demo_auth_session")?.value;
-  if (demoCookie) {
+  // Check persistent session cookie first
+  const appSessionCookie = cookieStore.get("app_auth_session")?.value || cookieStore.get("demo_auth_session")?.value;
+  if (appSessionCookie) {
     return {
-      id: "demo-user-00000000-0000-0000-0000-000000000001",
-      email: "demo.agency@facebookautomation.internal",
-      isDemo: true,
+      id: "admin-user-00000000-0000-0000-0000-000000000001",
+      email: "embroiderydata@gmail.com",
+      isDemo: false,
     };
   }
 

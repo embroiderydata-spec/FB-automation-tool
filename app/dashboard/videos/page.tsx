@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Film,
   Video,
@@ -33,6 +33,10 @@ import {
   RefreshCw,
   Edit2,
   Check,
+  X,
+  Calendar,
+  AlertCircle,
+  Volume2,
 } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +47,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VideoPlayerModal } from "@/components/video/video-player-modal";
 import { BrandingPreview } from "@/components/video/branding-preview";
 import { SubtitlePreview } from "@/components/video/subtitle-preview";
+import { VoiceStudio } from "@/components/video/voice-studio";
 import { SubtitlePresetStyle } from "@/lib/video/types";
 
 export default function VideoLibraryPage() {
@@ -61,6 +66,7 @@ export default function VideoLibraryPage() {
   const [loadingStoryboard, setLoadingStoryboard] = useState(false);
   const [generatingSceneId, setGeneratingSceneId] = useState<string | null>(null);
   const [generatingImageId, setGeneratingImageId] = useState<string | null>(null);
+  const [synthesizingVoice, setSynthesizingVoice] = useState(false);
   const [dispatchingRender, setDispatchingRender] = useState(false);
   const [renderNotice, setRenderNotice] = useState<string | null>(null);
   const [selectedSubtitlePreset, setSelectedSubtitlePreset] = useState<SubtitlePresetStyle>("bold_viral");
@@ -70,11 +76,21 @@ export default function VideoLibraryPage() {
   const [libraryVideos, setLibraryVideos] = useState<any[]>([]);
   const [loadingLibrary, setLoadingLibrary] = useState(false);
   const [assetTypeFilter, setAssetTypeFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("all");
   const [librarySearch, setLibrarySearch] = useState("");
+  const [assetToDelete, setAssetToDelete] = useState<{ id: string; name: string; isVideo: boolean } | null>(null);
+  const [deletingAsset, setDeletingAsset] = useState(false);
+  const [previewImageModal, setPreviewImageModal] = useState<{ url: string; title: string } | null>(null);
 
   // Tab 3: Render Queue State
   const [renderJobs, setRenderJobs] = useState<any[]>([]);
   const [loadingQueue, setLoadingQueue] = useState(false);
+  const [cancellingJobId, setCancellingJobId] = useState<string | null>(null);
+  const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
+
+  // Tab 6: Provider Testing State
+  const [testingProvider, setTestingProvider] = useState<string | null>(null);
+  const [providerTestResults, setProviderTestResults] = useState<Record<string, { success: boolean; latencyMs?: number; message?: string }>>({});
 
   // Video Preview Modal
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
@@ -85,7 +101,7 @@ export default function VideoLibraryPage() {
     provider?: string;
   } | null>(null);
 
-  // Initial Fetch
+  // Initial Data Fetch
   useEffect(() => {
     fetchPages();
     fetchProviders();
@@ -93,6 +109,23 @@ export default function VideoLibraryPage() {
     fetchLibrary();
     fetchRenderQueue();
   }, []);
+
+  // Polling for Render Queue when active jobs exist
+  useEffect(() => {
+    const hasActiveJobs = renderJobs.some((j) =>
+      ["pending", "queued", "generating_voice", "generating_scenes", "composing", "rendering"].includes(j.render_status)
+    );
+
+    let interval: NodeJS.Timeout | null = null;
+    if (hasActiveJobs) {
+      interval = setInterval(() => {
+        fetchRenderQueue(true);
+      }, 4000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [renderJobs]);
 
   async function fetchPages() {
     try {
@@ -166,9 +199,9 @@ export default function VideoLibraryPage() {
     }
   }
 
-  async function fetchRenderQueue() {
+  async function fetchRenderQueue(silent = false) {
     try {
-      setLoadingQueue(true);
+      if (!silent) setLoadingQueue(true);
       const res = await fetch("/api/video/render");
       const data = await res.json();
       if (res.ok && data.jobs) {
@@ -177,7 +210,7 @@ export default function VideoLibraryPage() {
     } catch {
       // Ignore
     } finally {
-      setLoadingQueue(false);
+      if (!silent) setLoadingQueue(false);
     }
   }
 
@@ -200,7 +233,7 @@ export default function VideoLibraryPage() {
       if (!res.ok) {
         alert(data.error || "Failed to generate video scene.");
       } else {
-        alert(`Video generation job started via ${data.provider}!`);
+        alert(`Video generation started via ${data.provider}! Clip saved to Asset Library.`);
         await fetchLibrary();
       }
     } catch (err: any) {
@@ -235,6 +268,36 @@ export default function VideoLibraryPage() {
       alert(err.message || "Error generating image.");
     } finally {
       setGeneratingImageId(null);
+    }
+  }
+
+  // Synthesize Narration Voiceover for Active Storyboard
+  async function handleSynthesizeNarration() {
+    if (!activeStoryboard?.content_scripts?.narration) {
+      alert("No narration text found for this storyboard.");
+      return;
+    }
+    try {
+      setSynthesizingVoice(true);
+      const res = await fetch("/api/video/voice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: activeStoryboard.content_scripts.narration,
+          speed: 1.0,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Failed to synthesize voiceover.");
+      } else {
+        alert("Voiceover synthesized successfully and saved to Asset Library!");
+        await fetchLibrary();
+      }
+    } catch (err: any) {
+      alert(err.message || "Error synthesizing voiceover.");
+    } finally {
+      setSynthesizingVoice(false);
     }
   }
 
@@ -277,23 +340,45 @@ export default function VideoLibraryPage() {
     }
   }
 
-  // Retry Render Job
+  // Cancel In-Flight Render Job
+  async function handleCancelJob(jobId: string) {
+    try {
+      setCancellingJobId(jobId);
+      const res = await fetch(`/api/video/render/${jobId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel" }),
+      });
+      if (res.ok) {
+        await fetchRenderQueue();
+      }
+    } catch {
+      // Ignore
+    } finally {
+      setCancellingJobId(null);
+    }
+  }
+
+  // Retry Failed Render Job
   async function handleRetryJob(jobId: string) {
     try {
+      setRetryingJobId(jobId);
       const res = await fetch(`/api/video/render/${jobId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "retry" }),
       });
       if (res.ok) {
-        fetchRenderQueue();
+        await fetchRenderQueue();
       }
     } catch {
       // Ignore
+    } finally {
+      setRetryingJobId(null);
     }
   }
 
-  // Delete Render Job
+  // Delete Render Job from Queue
   async function handleDeleteJob(jobId: string) {
     try {
       const res = await fetch(`/api/video/render/${jobId}`, { method: "DELETE" });
@@ -305,20 +390,118 @@ export default function VideoLibraryPage() {
     }
   }
 
+  // Delete Media Asset or Video with Confirmation
+  async function confirmDeleteAsset() {
+    if (!assetToDelete) return;
+    try {
+      setDeletingAsset(true);
+      const url = assetToDelete.isVideo
+        ? `/api/video/library?id=${assetToDelete.id}&is_video=true`
+        : `/api/video/library?id=${assetToDelete.id}`;
+
+      const res = await fetch(url, { method: "DELETE" });
+      if (res.ok) {
+        if (assetToDelete.isVideo) {
+          setLibraryVideos((prev) => prev.filter((v) => v.id !== assetToDelete.id));
+        } else {
+          setLibraryAssets((prev) => prev.filter((a) => a.id !== assetToDelete.id));
+        }
+      }
+    } catch {
+      // Ignore
+    } finally {
+      setDeletingAsset(false);
+      setAssetToDelete(null);
+    }
+  }
+
+  // Test Provider Live Connection
+  async function handleTestProvider(providerKey: string) {
+    try {
+      setTestingProvider(providerKey);
+      const startTime = performance.now();
+      const res = await fetch("/api/video/providers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: providerKey }),
+      });
+      const data = await res.json();
+      const latencyMs = Math.round(performance.now() - startTime);
+
+      setProviderTestResults((prev) => ({
+        ...prev,
+        [providerKey]: {
+          success: data.success ?? (res.ok && !data.error),
+          latencyMs,
+          message: data.message || (res.ok ? "Handshake Successful" : data.error || "Connection Failed"),
+        },
+      }));
+    } catch (err: any) {
+      setProviderTestResults((prev) => ({
+        ...prev,
+        [providerKey]: {
+          success: false,
+          message: err.message || "Network Timeout",
+        },
+      }));
+    } finally {
+      setTestingProvider(null);
+    }
+  }
+
+  // Filter Assets by Date
+  function filterByDate(itemDateStr: string) {
+    if (dateFilter === "all") return true;
+    const itemDate = new Date(itemDateStr).getTime();
+    const now = Date.now();
+    if (dateFilter === "today") return now - itemDate < 24 * 3600 * 1000;
+    if (dateFilter === "7days") return now - itemDate < 7 * 24 * 3600 * 1000;
+    if (dateFilter === "30days") return now - itemDate < 30 * 24 * 3600 * 1000;
+    return true;
+  }
+
   const specBadges = [
     { label: "Aspect Ratio", value: "9:16 Vertical" },
     { label: "Resolution", value: "1080 × 1920 Full HD" },
     { label: "Format", value: "H.264 / AAC MP4" },
     { label: "FPS", value: "30 FPS" },
     {
-      label: "Active Provider",
+      label: "Active Video",
       value: providersStatus?.replicate?.is_configured
         ? "Replicate (Active)"
         : providersStatus?.runway?.is_configured
         ? "Runway (Active)"
         : "Not Configured",
     },
+    {
+      label: "Voiceover",
+      value: providersStatus?.elevenlabs?.is_configured ? "ElevenLabs (Active)" : "OpenAI TTS",
+    },
   ];
+
+  // Helper for Queue processing step labels
+  function getStepLabel(status: string) {
+    switch (status) {
+      case "queued":
+        return "Step 1/5: Queued in Dispatcher";
+      case "generating_voice":
+        return "Step 2/5: Synthesizing Voiceover";
+      case "generating_scenes":
+        return "Step 3/5: Rendering 9:16 Scene Clips";
+      case "composing":
+        return "Step 4/5: Burning Subtitles & Branding";
+      case "rendering":
+        return "Step 5/5: Encoding 1080×1920 MP4";
+      case "completed":
+        return "Completed • Ready for Publishing";
+      case "failed":
+        return "Failed • Tap Retry";
+      case "cancelled":
+        return "Cancelled by User";
+      default:
+        return "Processing Pipeline";
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -330,11 +513,11 @@ export default function VideoLibraryPage() {
               Video Production Studio & Library
             </h2>
             <Badge variant="outline" className="border-indigo-500/40 text-indigo-600 dark:text-indigo-400 text-[10px]">
-              Phase 2.3 Active Engine
+              Active Engine
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Turn approved storyboards into vertical 9:16 Facebook Reels with AI video clips, ElevenLabs voiceovers, subtitles, and watermarks.
+            Turn approved storyboards into vertical 9:16 Facebook Reels with AI video clips, ElevenLabs voiceovers, kinetic subtitles, and watermarks.
           </p>
         </div>
 
@@ -373,7 +556,12 @@ export default function VideoLibraryPage() {
         <TabsList className="grid grid-cols-3 sm:grid-cols-6 h-auto p-1 bg-muted/50">
           <TabsTrigger value="studio" className="text-xs py-1.5">Production Studio</TabsTrigger>
           <TabsTrigger value="library" className="text-xs py-1.5">Asset Library</TabsTrigger>
-          <TabsTrigger value="queue" className="text-xs py-1.5">Render Queue</TabsTrigger>
+          <TabsTrigger value="queue" className="text-xs py-1.5 flex items-center gap-1.5">
+            Render Queue
+            {renderJobs.some((j) => ["pending", "queued", "generating_voice", "generating_scenes", "composing", "rendering"].includes(j.render_status)) && (
+              <span className="h-1.5 w-1.5 rounded-full bg-indigo-500 animate-pulse" />
+            )}
+          </TabsTrigger>
           <TabsTrigger value="subtitles" className="text-xs py-1.5">Subtitles & Voice</TabsTrigger>
           <TabsTrigger value="branding" className="text-xs py-1.5">Page Branding</TabsTrigger>
           <TabsTrigger value="settings" className="text-xs py-1.5">Engine Settings</TabsTrigger>
@@ -414,7 +602,7 @@ export default function VideoLibraryPage() {
 
             <CardContent className="space-y-4">
               {renderNotice && (
-                <div className="p-3 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs">
+                <div className="p-3 rounded-lg border border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 text-xs">
                   {renderNotice}
                 </div>
               )}
@@ -424,7 +612,7 @@ export default function VideoLibraryPage() {
                   icon={Film}
                   title="No Storyboard Selected"
                   description="Choose a storyboard above or approve a script in the AI Content Studio to start producing video scenes."
-                  phase="Phase 2.3 Ready"
+                  phase="Active Pipeline"
                 />
               ) : loadingStoryboard ? (
                 <div className="py-12 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
@@ -440,28 +628,47 @@ export default function VideoLibraryPage() {
                         Ready to Render Full 9:16 Reel
                       </span>
                       <span className="text-[11px] text-muted-foreground">
-                        {scenes.length} Scenes • Subtitles: <strong>{selectedSubtitlePreset}</strong> • Full HD 1080×1920
+                        {scenes.length} Scenes • Subtitles: <strong>{selectedSubtitlePreset}</strong> • Full HD 1080×1920 • 30 FPS
                       </span>
                     </div>
 
-                    <Button
-                      size="sm"
-                      disabled={dispatchingRender}
-                      onClick={handleDispatchRender}
-                      className="gap-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 text-white shrink-0"
-                    >
-                      {dispatchingRender ? (
-                        <>
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          Dispatching Render...
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="h-3.5 w-3.5" />
-                          Dispatch Full Video Render
-                        </>
+                    <div className="flex items-center gap-2">
+                      {activeStoryboard?.content_scripts?.narration && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={synthesizingVoice}
+                          onClick={handleSynthesizeNarration}
+                          className="h-8 text-xs gap-1.5"
+                        >
+                          {synthesizingVoice ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Mic className="h-3 w-3 text-indigo-500" />
+                          )}
+                          Synthesize Voiceover
+                        </Button>
                       )}
-                    </Button>
+
+                      <Button
+                        size="sm"
+                        disabled={dispatchingRender}
+                        onClick={handleDispatchRender}
+                        className="gap-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 text-white shrink-0 h-8"
+                      >
+                        {dispatchingRender ? (
+                          <>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Dispatching Render...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="h-3.5 w-3.5" />
+                            Dispatch Full Video Render
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </div>
 
                   {/* Scene-by-Scene Video Clip Pipeline */}
@@ -488,7 +695,7 @@ export default function VideoLibraryPage() {
                             <strong className="text-foreground">Narration:</strong> "{scene.narration}"
                           </p>
                           <p className="text-muted-foreground">
-                            <strong className="text-foreground">Visual Cue:</strong> {scene.visual_description}
+                            <strong className="text-foreground">Visual Description:</strong> {scene.visual_description}
                           </p>
                           <div className="p-2 rounded bg-indigo-500/5 border border-indigo-500/20 text-[10px] font-mono text-muted-foreground">
                             {scene.video_prompt}
@@ -507,7 +714,7 @@ export default function VideoLibraryPage() {
                             {generatingImageId === scene.id ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
                             ) : (
-                              <Eye className="h-3 w-3" />
+                              <Eye className="h-3 w-3 text-indigo-500" />
                             )}
                             9:16 Keyframe
                           </Button>
@@ -515,7 +722,7 @@ export default function VideoLibraryPage() {
                           <Button
                             variant="default"
                             size="sm"
-                            className="h-7 text-[11px] gap-1 px-2"
+                            className="h-7 text-[11px] gap-1 px-2 bg-indigo-600 hover:bg-indigo-700 text-white"
                             disabled={generatingSceneId === scene.id}
                             onClick={() => handleGenerateSceneClip(scene)}
                           >
@@ -545,7 +752,7 @@ export default function VideoLibraryPage() {
               <div>
                 <CardTitle className="text-sm font-semibold">Video Asset Library</CardTitle>
                 <CardDescription className="text-xs">
-                  Central repository of generated 9:16 vertical videos, scene clips, voiceover tracks, and keyframe images.
+                  Central repository of generated 9:16 vertical videos, scene clips, voiceover tracks, and keyframe images stored in Supabase.
                 </CardDescription>
               </div>
 
@@ -555,7 +762,7 @@ export default function VideoLibraryPage() {
                   value={librarySearch}
                   onChange={(e) => setLibrarySearch(e.target.value)}
                   placeholder="Search assets..."
-                  className="h-8 text-xs w-44"
+                  className="h-8 text-xs w-40"
                 />
 
                 <select
@@ -566,11 +773,32 @@ export default function VideoLibraryPage() {
                   }}
                   className="h-8 text-xs rounded border border-input bg-background px-2"
                 >
-                  <option value="all">All Asset Types</option>
+                  <option value="all">All Types</option>
                   <option value="video">Final Videos</option>
                   <option value="image">Scene Images</option>
                   <option value="voiceover">Voiceovers</option>
                 </select>
+
+                <select
+                  value={dateFilter}
+                  onChange={(e) => setDateFilter(e.target.value)}
+                  className="h-8 text-xs rounded border border-input bg-background px-2"
+                >
+                  <option value="all">All Dates</option>
+                  <option value="today">Today</option>
+                  <option value="7days">Last 7 Days</option>
+                  <option value="30days">Last 30 Days</option>
+                </select>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={fetchLibrary}
+                  className="h-8 w-8 p-0"
+                  title="Refresh Library"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </Button>
               </div>
             </CardHeader>
 
@@ -584,23 +812,24 @@ export default function VideoLibraryPage() {
                 <EmptyState
                   icon={FolderOpen}
                   title="No Video Assets Stored"
-                  description="Rendered 1080x1920 MP4 Reels and generated video clips will appear here automatically for preview and download."
-                  phase="Phase 2.3 Ready"
+                  description="Rendered 1080x1920 MP4 Reels, AI scene clips, and voiceovers will appear here automatically for preview and download."
+                  phase="Active Storage"
                 />
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-                  {/* Rendered Videos */}
+                  {/* Rendered Final Videos */}
                   {libraryVideos
                     .filter((v) => !librarySearch || v.title?.toLowerCase().includes(librarySearch.toLowerCase()))
+                    .filter((v) => filterByDate(v.created_at))
                     .map((vid) => (
                       <div
                         key={vid.id}
-                        className="rounded-lg border bg-card overflow-hidden flex flex-col justify-between hover:border-indigo-500/40 transition-colors"
+                        className="rounded-lg border bg-card overflow-hidden flex flex-col justify-between hover:border-indigo-500/40 transition-colors shadow-2xs"
                       >
-                        <div className="aspect-[9/16] bg-slate-950 relative flex items-center justify-center">
-                          {vid.video_url ? (
+                        <div className="aspect-[9/16] bg-slate-950 relative flex items-center justify-center group">
+                          {vid.video_url || vid.final_video_path ? (
                             <video
-                              src={vid.video_url}
+                              src={vid.video_url || vid.final_video_path}
                               className="w-full h-full object-cover"
                               muted
                               playsInline
@@ -649,7 +878,7 @@ export default function VideoLibraryPage() {
                             className="text-xs"
                           >
                             <Button variant="ghost" size="sm" className="h-6 text-[11px] gap-1 px-1.5">
-                              <Download className="h-3 w-3" /> Download
+                              <Download className="h-3 w-3" /> Download MP4
                             </Button>
                           </a>
 
@@ -657,10 +886,7 @@ export default function VideoLibraryPage() {
                             variant="ghost"
                             size="sm"
                             className="h-6 w-6 p-0 text-muted-foreground hover:text-red-500"
-                            onClick={async () => {
-                              await fetch(`/api/video/library?id=${vid.id}&is_video=true`, { method: "DELETE" });
-                              setLibraryVideos((prev) => prev.filter((v) => v.id !== vid.id));
-                            }}
+                            onClick={() => setAssetToDelete({ id: vid.id, name: vid.title, isVideo: true })}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -671,18 +897,24 @@ export default function VideoLibraryPage() {
                   {/* Media Assets (Images / Audio / Scenes) */}
                   {libraryAssets
                     .filter((a) => !librarySearch || a.asset_name?.toLowerCase().includes(librarySearch.toLowerCase()))
+                    .filter((a) => filterByDate(a.created_at))
                     .map((asset) => (
                       <div
                         key={asset.id}
-                        className="rounded-lg border bg-card overflow-hidden flex flex-col justify-between hover:border-primary/40 transition-colors"
+                        className="rounded-lg border bg-card overflow-hidden flex flex-col justify-between hover:border-indigo-500/40 transition-colors shadow-2xs"
                       >
                         <div className="aspect-[9/16] bg-slate-900 relative flex items-center justify-center overflow-hidden">
                           {asset.asset_type === "image" ? (
-                            <img src={asset.public_url} alt={asset.asset_name} className="w-full h-full object-cover" />
+                            <img
+                              src={asset.public_url}
+                              alt={asset.asset_name}
+                              className="w-full h-full object-cover cursor-pointer"
+                              onClick={() => setPreviewImageModal({ url: asset.public_url, title: asset.asset_name })}
+                            />
                           ) : asset.asset_type === "voiceover" ? (
-                            <div className="p-4 text-center">
-                              <Mic className="h-8 w-8 text-primary mx-auto mb-2" />
-                              <audio src={asset.public_url} controls className="w-36 h-6" />
+                            <div className="p-4 text-center w-full">
+                              <Mic className="h-8 w-8 text-indigo-500 mx-auto mb-2" />
+                              <audio src={asset.public_url} controls className="w-full h-8" />
                             </div>
                           ) : (
                             <Video className="h-8 w-8 text-slate-700" />
@@ -695,7 +927,7 @@ export default function VideoLibraryPage() {
                         <div className="p-3 space-y-1">
                           <h4 className="text-xs font-semibold text-foreground truncate">{asset.asset_name}</h4>
                           <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                            <span>{asset.provider || "AI"}</span>
+                            <span>{asset.provider || "AI Studio"}</span>
                             <span>{new Date(asset.created_at).toLocaleDateString()}</span>
                           </div>
                         </div>
@@ -711,10 +943,7 @@ export default function VideoLibraryPage() {
                             variant="ghost"
                             size="sm"
                             className="h-6 w-6 p-0 text-muted-foreground hover:text-red-500"
-                            onClick={async () => {
-                              await fetch(`/api/video/library?id=${asset.id}`, { method: "DELETE" });
-                              setLibraryAssets((prev) => prev.filter((a) => a.id !== asset.id));
-                            }}
+                            onClick={() => setAssetToDelete({ id: asset.id, name: asset.asset_name, isVideo: false })}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -746,9 +975,9 @@ export default function VideoLibraryPage() {
                 variant="outline"
                 size="sm"
                 className="h-7 text-xs gap-1"
-                onClick={fetchRenderQueue}
+                onClick={() => fetchRenderQueue(false)}
               >
-                <RefreshCw className="h-3 w-3" /> Refresh
+                <RefreshCw className={`h-3 w-3 ${loadingQueue ? "animate-spin" : ""}`} /> Refresh
               </Button>
             </CardHeader>
 
@@ -762,98 +991,134 @@ export default function VideoLibraryPage() {
                   <table className="w-full text-left text-xs">
                     <thead className="border-y bg-muted/40 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                       <tr>
-                        <th className="px-4 py-3">Video Title</th>
+                        <th className="px-4 py-3">Video Title & ID</th>
                         <th className="px-4 py-3">Page</th>
-                        <th className="px-4 py-3">Render State</th>
+                        <th className="px-4 py-3">Current Processing Step</th>
                         <th className="px-4 py-3">Progress</th>
                         <th className="px-4 py-3">Created</th>
                         <th className="px-4 py-3 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {renderJobs.map((job) => (
-                        <tr key={job.id} className="hover:bg-muted/30 transition-colors">
-                          <td className="px-4 py-3 font-medium text-foreground max-w-xs truncate">
-                            {job.title}
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground">
-                            {job.facebook_pages?.page_name || "General Page"}
-                          </td>
-                          <td className="px-4 py-3">
-                            <Badge
-                              variant={
-                                job.render_status === "completed"
-                                  ? "success"
-                                  : job.render_status === "failed"
-                                  ? "destructive"
-                                  : "outline"
-                              }
-                              className="text-[10px] capitalize"
-                            >
-                              {job.render_status}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3 w-36">
-                            <div className="flex items-center gap-2">
-                              <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
-                                <div
-                                  className={`h-1.5 rounded-full ${
-                                    job.render_status === "failed"
-                                      ? "bg-red-500"
-                                      : "bg-indigo-500 transition-all duration-500"
-                                  }`}
-                                  style={{ width: `${job.render_progress || 0}%` }}
-                                />
+                      {renderJobs.map((job) => {
+                        const isInFlight = ["pending", "queued", "generating_voice", "generating_scenes", "composing", "rendering"].includes(job.render_status);
+                        return (
+                          <tr key={job.id} className="hover:bg-muted/30 transition-colors">
+                            <td className="px-4 py-3 font-medium text-foreground max-w-xs">
+                              <span className="truncate block font-semibold">{job.title}</span>
+                              <span className="text-[10px] text-muted-foreground font-mono">#{job.id.slice(0, 8)}</span>
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground">
+                              {job.facebook_pages?.page_name || "Page"}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="space-y-1">
+                                <Badge
+                                  variant={
+                                    job.render_status === "completed"
+                                      ? "success"
+                                      : job.render_status === "failed"
+                                      ? "destructive"
+                                      : isInFlight
+                                      ? "default"
+                                      : "outline"
+                                  }
+                                  className="text-[10px] capitalize"
+                                >
+                                  {job.render_status}
+                                </Badge>
+                                <span className="block text-[10px] text-muted-foreground">
+                                  {getStepLabel(job.render_status)}
+                                </span>
                               </div>
-                              <span className="text-[10px] font-mono text-muted-foreground w-8 text-right">
-                                {job.render_progress || 0}%
-                              </span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground text-[11px]">
-                            {new Date(job.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                          </td>
-                          <td className="px-4 py-3 text-right space-x-1">
-                            {job.render_status === "failed" && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-6 text-[10px] gap-1 px-1.5"
-                                onClick={() => handleRetryJob(job.id)}
-                              >
-                                <RotateCcw className="h-2.5 w-2.5" /> Retry
-                              </Button>
-                            )}
+                            </td>
+                            <td className="px-4 py-3 w-40">
+                              <div className="flex items-center gap-2">
+                                <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                                  <div
+                                    className={`h-2 rounded-full ${
+                                      job.render_status === "failed"
+                                        ? "bg-red-500"
+                                        : job.render_status === "completed"
+                                        ? "bg-emerald-500"
+                                        : "bg-indigo-600 transition-all duration-500"
+                                    }`}
+                                    style={{ width: `${job.render_progress || 0}%` }}
+                                  />
+                                </div>
+                                <span className="text-[10px] font-mono text-muted-foreground w-8 text-right">
+                                  {job.render_progress || 0}%
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground text-[11px]">
+                              {new Date(job.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </td>
+                            <td className="px-4 py-3 text-right space-x-1">
+                              {isInFlight && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-6 text-[10px] gap-1 px-1.5 text-muted-foreground hover:text-red-500"
+                                  disabled={cancellingJobId === job.id}
+                                  onClick={() => handleCancelJob(job.id)}
+                                >
+                                  {cancellingJobId === job.id ? (
+                                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                                  ) : (
+                                    <X className="h-2.5 w-2.5" />
+                                  )}
+                                  Cancel
+                                </Button>
+                              )}
 
-                            {job.render_status === "completed" && job.final_video_path && (
+                              {job.render_status === "failed" && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-6 text-[10px] gap-1 px-1.5"
+                                  disabled={retryingJobId === job.id}
+                                  onClick={() => handleRetryJob(job.id)}
+                                >
+                                  {retryingJobId === job.id ? (
+                                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                                  ) : (
+                                    <RotateCcw className="h-2.5 w-2.5" />
+                                  )}
+                                  Retry
+                                </Button>
+                              )}
+
+                              {job.render_status === "completed" && job.final_video_path && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 text-[10px] gap-1 text-primary px-1.5"
+                                  onClick={() => {
+                                    setPreviewVideo({
+                                      url: job.final_video_path,
+                                      title: job.title,
+                                      duration: job.duration_seconds,
+                                    });
+                                    setPreviewModalOpen(true);
+                                  }}
+                                >
+                                  <Play className="h-2.5 w-2.5" /> View
+                                </Button>
+                              )}
+
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-6 text-[10px] gap-1 text-primary px-1.5"
-                                onClick={() => {
-                                  setPreviewVideo({
-                                    url: job.final_video_path,
-                                    title: job.title,
-                                    duration: job.duration_seconds,
-                                  });
-                                  setPreviewModalOpen(true);
-                                }}
+                                className="h-6 w-6 p-0 text-muted-foreground hover:text-red-500"
+                                onClick={() => handleDeleteJob(job.id)}
                               >
-                                <Play className="h-2.5 w-2.5" /> View
+                                <Trash2 className="h-3 w-3" />
                               </Button>
-                            )}
-
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 p-0 text-muted-foreground hover:text-red-500"
-                              onClick={() => handleDeleteJob(job.id)}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -870,6 +1135,7 @@ export default function VideoLibraryPage() {
             selectedPreset={selectedSubtitlePreset}
             onSelectPreset={setSelectedSubtitlePreset}
           />
+          <VoiceStudio onVoiceoverGenerated={() => fetchLibrary()} />
         </TabsContent>
 
         {/* ------------------------------------------------------------------ */}
@@ -877,17 +1143,19 @@ export default function VideoLibraryPage() {
         {/* ------------------------------------------------------------------ */}
         <TabsContent value="branding" className="space-y-6">
           <BrandingPreview
-            pageId={selectedPageId !== "all" ? selectedPageId : pages[0]?.id || ""}
+            pageId={selectedPageId !== "all" ? selectedPageId : "global"}
             pageName={
               selectedPageId !== "all"
                 ? pages.find((p) => p.id === selectedPageId)?.page_name || "Page"
-                : pages[0]?.page_name || "Default Brand"
+                : "Global Default Branding"
             }
+            pages={pages}
+            onPageChange={setSelectedPageId}
           />
         </TabsContent>
 
         {/* ------------------------------------------------------------------ */}
-        {/* TAB 6: SETTINGS & ROADMAP */}
+        {/* TAB 6: SETTINGS & PROVIDER DIAGNOSTICS */}
         {/* ------------------------------------------------------------------ */}
         <TabsContent value="settings" className="space-y-6">
           <div className="grid gap-6 md:grid-cols-2">
@@ -914,6 +1182,10 @@ export default function VideoLibraryPage() {
                   <span className="font-bold">30 FPS</span>
                 </div>
                 <div className="flex items-center justify-between p-2 rounded border bg-muted/20">
+                  <span className="text-muted-foreground">Audio Codec:</span>
+                  <span className="font-bold">AAC (48 kHz)</span>
+                </div>
+                <div className="flex items-center justify-between p-2 rounded border bg-muted/20">
                   <span className="text-muted-foreground">Maximum Concurrent Video Jobs:</span>
                   <span className="font-bold">2 Jobs</span>
                 </div>
@@ -928,31 +1200,118 @@ export default function VideoLibraryPage() {
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-semibold">Provider Health Handshake</CardTitle>
                 <CardDescription className="text-xs">
-                  Live connection diagnostics. Status only displays "Connected" when real credentials pass API validation.
+                  Live connection diagnostics. Test API keys with round-trip latency verification.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-2.5">
                 {[
-                  { name: "Replicate (Video & Image)", status: providersStatus?.replicate?.is_configured },
-                  { name: "Runway Gen-3 (Video)", status: providersStatus?.runway?.is_configured },
-                  { name: "ElevenLabs (Voiceover)", status: providersStatus?.elevenlabs?.is_configured },
-                  { name: "OpenAI DALL-E 3 (Image)", status: providersStatus?.openai_image?.is_configured },
-                ].map((item) => (
-                  <div
-                    key={item.name}
-                    className="flex items-center justify-between p-2.5 rounded-lg border bg-card text-xs"
-                  >
-                    <span className="font-medium text-foreground">{item.name}</span>
-                    <Badge variant={item.status ? "success" : "outline"} className="text-[10px]">
-                      {item.status ? "Connected" : "Not Configured (.env.local)"}
-                    </Badge>
-                  </div>
-                ))}
+                  { key: "replicate", name: "Replicate (Video & Image)", status: providersStatus?.replicate?.is_configured },
+                  { key: "runway", name: "Runway Gen-3 (Video)", status: providersStatus?.runway?.is_configured },
+                  { key: "elevenlabs", name: "ElevenLabs (Voiceover)", status: providersStatus?.elevenlabs?.is_configured },
+                  { key: "openai", name: "OpenAI DALL-E 3 (Image)", status: providersStatus?.openai_image?.is_configured },
+                ].map((item) => {
+                  const testResult = providerTestResults[item.key];
+                  return (
+                    <div
+                      key={item.key}
+                      className="p-2.5 rounded-lg border bg-card text-xs space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-foreground">{item.name}</span>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={item.status ? "success" : "outline"} className="text-[10px]">
+                            {item.status ? "Configured" : "Not Configured (.env.local)"}
+                          </Badge>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-6 text-[10px] px-2 gap-1"
+                            disabled={testingProvider === item.key}
+                            onClick={() => handleTestProvider(item.key)}
+                          >
+                            {testingProvider === item.key ? (
+                              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                            ) : (
+                              <Activity className="h-2.5 w-2.5" />
+                            )}
+                            Test
+                          </Button>
+                        </div>
+                      </div>
+
+                      {testResult && (
+                        <div className="text-[11px] flex items-center justify-between pt-1 border-t text-muted-foreground">
+                          <span className={testResult.success ? "text-emerald-500 font-medium" : "text-amber-500"}>
+                            {testResult.message}
+                          </span>
+                          {testResult.latencyMs && (
+                            <span className="font-mono text-[10px]">{testResult.latencyMs}ms</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </CardContent>
             </Card>
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Delete Asset Confirmation Modal */}
+      {assetToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <Card className="w-full max-w-sm border shadow-xl bg-card">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2 text-destructive">
+                <AlertTriangle className="h-4 w-4" />
+                Confirm Asset Deletion
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Are you sure you want to permanently delete <strong>{assetToDelete.name}</strong>? This action cannot be undone.
+              </CardDescription>
+            </CardHeader>
+            <div className="p-4 pt-0 flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                disabled={deletingAsset}
+                onClick={() => setAssetToDelete(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-8 text-xs gap-1.5"
+                disabled={deletingAsset}
+                onClick={confirmDeleteAsset}
+              >
+                {deletingAsset ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                Delete Permanently
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Image Lightbox Modal */}
+      {previewImageModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4"
+          onClick={() => setPreviewImageModal(null)}
+        >
+          <div className="relative max-w-sm max-h-[90vh] flex flex-col items-center">
+            <img
+              src={previewImageModal.url}
+              alt={previewImageModal.title}
+              className="rounded-xl max-h-[80vh] object-contain shadow-2xl"
+            />
+            <span className="text-white text-xs mt-2 font-medium">{previewImageModal.title}</span>
+          </div>
+        </div>
+      )}
 
       {/* Video Preview Modal */}
       {previewVideo && (
