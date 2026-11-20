@@ -11,11 +11,12 @@ export const META_CONFIG = {
     process.env.META_OAUTH_REDIRECT_URI ||
     `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/meta/callback`,
   
-  // Essential permissions required for Page Discovery & Management
+  // Essential permissions required for Page Discovery, Management & Analytics
   scopes: [
     "pages_show_list",       // Required to list Facebook Pages managed by user
     "pages_read_engagement", // Required to read Page profile, metadata, and audience engagement
     "pages_manage_posts",    // Required to configure publishing & posts automation
+    "read_insights",         // Required for official Page and Video Insights (Phase 2.6)
   ],
 };
 

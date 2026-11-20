@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   BarChart3,
   TrendingUp,
@@ -9,314 +9,452 @@ import {
   MessageCircle,
   Share2,
   CheckCircle2,
-  ListChecks,
-  LineChart,
-  BrainCircuit,
+  RefreshCw,
   FileDown,
-  Sparkles,
-  PieChart,
   Layers,
-  Video,
-  Award,
+  Film,
+  BrainCircuit,
+  Calendar,
+  AlertCircle,
   Clock,
-  ArrowUpRight,
+  Sparkles,
+  Award,
 } from "lucide-react";
-import { EmptyState } from "@/components/ui/empty-state";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { CrossPageTable } from "@/components/analytics/cross-page-table";
+import { VideoPerformanceTable } from "@/components/analytics/video-performance-table";
+import { VideoDetailDrawer } from "@/components/analytics/video-detail-drawer";
+import { AIInsightsCard } from "@/components/analytics/ai-insights-card";
+import { GrowthChart } from "@/components/analytics/growth-chart";
+import {
+  PerformanceOverview,
+  CrossPageMetric,
+  VideoPerformanceItem,
+  GrowthSnapshot,
+  DateRangePreset,
+} from "@/lib/analytics/types";
+import { IntelligenceAnalysisResult } from "@/lib/analytics/ai-intelligence";
 
-export default function AnalyticsPage() {
-  const metricHighlights = [
-    { label: "Aggregate Views", value: "2.4M", subtext: "+14.2% this month", icon: Eye },
-    { label: "Total Reach", value: "890K", subtext: "Across 3 connected pages", icon: Share2 },
-    { label: "Engagements", value: "142.5K", subtext: "Comments, shares, reactions", icon: MessageCircle },
-    { label: "Net Followers Added", value: "+8,420", subtext: "Organic algorithm growth", icon: Users },
-  ];
+export default function AnalyticsDashboardPage() {
+  const [selectedPageId, setSelectedPageId] = useState<string>("all");
+  const [dateRange, setDateRange] = useState<DateRangePreset>("last_30d");
+  const [activeTab, setActiveTab] = useState<"overview" | "videos" | "insights" | "growth">("overview");
 
-  const featureCards = [
-    {
-      id: "A",
-      title: "Cross-Page Analytics",
-      icon: Layers,
-      badge: "Phase 2 Planned",
-      tagline: "Portfolio-Wide Performance Dashboard",
-      description:
-        "Monitor performance metrics across all connected Facebook Pages from a single centralized dashboard.",
-      capabilities: [
-        "Aggregate & per-Page views, reach, and impressions",
-        "Niche-by-niche comparison benchmarks",
-        "Cross-page engagement rate ranking",
-      ],
-    },
-    {
-      id: "B",
-      title: "Video Performance",
-      icon: Video,
-      badge: "Phase 2 Planned",
-      tagline: "Granular Retention & Watch-Time Telemetry",
-      description:
-        "Track views, average watch time, 3-second hook retention, and engagement drop-off for each published Reel.",
-      capabilities: [
-        "First-3-second retention curve analysis",
-        "Average percentage watched metrics",
-        "Post-level likes, comments, shares, and saves",
-      ],
-    },
-    {
-      id: "C",
-      title: "Growth Tracking",
-      icon: TrendingUp,
-      badge: "Phase 2 Planned",
-      tagline: "Follower & Audience Demographic Trends",
-      description:
-        "Monitor follower growth, reach expansion, and audience demographic trends over time.",
-      capabilities: [
-        "Daily, weekly, and monthly follower velocity",
-        "Audience geography & language distribution",
-        "Organic vs. viral distribution telemetry",
-      ],
-    },
-    {
-      id: "D",
-      title: "Content Intelligence",
-      icon: Award,
-      badge: "Phase 2 Planned",
-      tagline: "Winner / Loser Content Pattern Mining",
-      description:
-        "Identify top-performing topics, hooks, and formats to guide future content generation and double down on winners.",
-      capabilities: [
-        "Automated top 10% vs bottom 10% classification",
-        "Hook-to-retention correlation mapping",
-        "Format comparisons (30s vs 60s Reels)",
-      ],
-    },
-    {
-      id: "E",
-      title: "AI Insights",
-      icon: BrainCircuit,
-      badge: "Phase 2 Planned",
-      tagline: "Automated Strategy Recommendations",
-      description:
-        "Receive automated AI recommendations on optimal posting schedules, content improvements, and niche opportunities.",
-      capabilities: [
-        "AI-generated weekly executive summaries",
-        "Best posting times analysis per Page timezone",
-        "Suggested script angle improvements",
-      ],
-    },
-    {
-      id: "F",
-      title: "Reports & Export",
-      icon: FileDown,
-      badge: "Phase 2 Planned",
-      tagline: "Automated CSV & PDF Performance Exports",
-      description:
-        "Generate and export comprehensive performance reports for individual Pages or the entire portfolio.",
-      capabilities: [
-        "One-click CSV raw data exports",
-        "Executive PDF summary reports",
-        "Scheduled email report delivery",
-      ],
-    },
-  ];
+  // Telemetry States
+  const [overview, setOverview] = useState<PerformanceOverview>({
+    total_plays: null,
+    total_reach: null,
+    total_impressions: null,
+    total_engagements: null,
+    total_followers: null,
+    followers_gained: null,
+    followers_lost: null,
+    average_watch_time: null,
+    total_watch_time: null,
+    published_videos: 0,
+    last_synced_at: null,
+    is_real_data: false,
+  });
 
-  const roadmapItems = [
-    { title: "Facebook Page Insights API Integration", status: "Planned Phase 2" },
-    { title: "Video Views & Watch-Time Tracking", status: "Planned Phase 2" },
-    { title: "Reach & Impressions Measurement", status: "Planned Phase 2" },
-    { title: "Engagement Metrics (Likes, Comments, Shares)", status: "Planned Phase 2" },
-    { title: "Follower Growth Tracking Over Time", status: "Planned Phase 2" },
-    { title: "Audience Retention & 3s Drop-off Curves", status: "Planned Phase 2" },
-    { title: "Top-Performing Content Identification", status: "Planned Phase 2" },
-    { title: "Low-Performing Content Identification", status: "Planned Phase 2" },
-    { title: "Cross-Page Performance Comparison", status: "Planned Phase 2" },
-    { title: "Performance by Niche and Category", status: "Planned Phase 2" },
-    { title: "Best Posting Times Empirical Analysis", status: "Planned Phase 2" },
-    { title: "Daily, Weekly, and Monthly Reports", status: "Planned Phase 2" },
-    { title: "Performance Export (CSV & PDF)", status: "Planned Phase 2" },
-    { title: "AI Performance Summaries & Recommendations", status: "Planned Phase 2" },
-  ];
+  const [pages, setPages] = useState<CrossPageMetric[]>([]);
+  const [videos, setVideos] = useState<VideoPerformanceItem[]>([]);
+  const [growthSnapshots, setGrowthSnapshots] = useState<GrowthSnapshot[]>([]);
+  const [aiAnalysis, setAiAnalysis] = useState<IntelligenceAnalysisResult | null>(null);
+
+  // UI state
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [selectedVideo, setSelectedVideo] = useState<VideoPerformanceItem | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+
+  // Fetch Overview Data
+  const fetchOverview = useCallback(async () => {
+    try {
+      const url = new URL("/api/analytics/overview", window.location.origin);
+      if (selectedPageId !== "all") url.searchParams.set("page_id", selectedPageId);
+      url.searchParams.set("date_range", dateRange);
+
+      const res = await fetch(url.toString());
+      if (res.ok) {
+        const data = await res.json();
+        if (data.overview) setOverview(data.overview);
+      }
+    } catch (err) {
+      console.error("Failed to fetch analytics overview:", err);
+    }
+  }, [selectedPageId, dateRange]);
+
+  // Fetch Cross-Page Metrics
+  const fetchPages = useCallback(async () => {
+    try {
+      const res = await fetch("/api/analytics/pages");
+      if (res.ok) {
+        const data = await res.json();
+        setPages(data.pages || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch cross-page metrics:", err);
+    }
+  }, []);
+
+  // Fetch Video Metrics
+  const fetchVideos = useCallback(async () => {
+    try {
+      const url = new URL("/api/analytics/videos", window.location.origin);
+      if (selectedPageId !== "all") url.searchParams.set("page_id", selectedPageId);
+      url.searchParams.set("date_range", dateRange);
+
+      const res = await fetch(url.toString());
+      if (res.ok) {
+        const data = await res.json();
+        setVideos(data.videos || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch video analytics:", err);
+    }
+  }, [selectedPageId, dateRange]);
+
+  // Fetch Growth Snapshots
+  const fetchGrowth = useCallback(async () => {
+    try {
+      const url = new URL("/api/analytics/growth", window.location.origin);
+      if (selectedPageId !== "all") url.searchParams.set("page_id", selectedPageId);
+
+      const res = await fetch(url.toString());
+      if (res.ok) {
+        const data = await res.json();
+        setGrowthSnapshots(data.snapshots || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch growth snapshots:", err);
+    }
+  }, [selectedPageId]);
+
+  // Fetch AI Insights
+  const fetchInsights = useCallback(async () => {
+    try {
+      const url = new URL("/api/analytics/insights", window.location.origin);
+      if (selectedPageId !== "all") url.searchParams.set("page_id", selectedPageId);
+
+      const res = await fetch(url.toString());
+      if (res.ok) {
+        const data = await res.json();
+        setAiAnalysis(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch AI insights:", err);
+    }
+  }, [selectedPageId]);
+
+  // Load all data
+  const loadAllAnalytics = useCallback(async () => {
+    setLoading(true);
+    await Promise.all([fetchOverview(), fetchPages(), fetchVideos(), fetchGrowth(), fetchInsights()]);
+    setLoading(false);
+  }, [fetchOverview, fetchPages, fetchVideos, fetchGrowth, fetchInsights]);
+
+  useEffect(() => {
+    loadAllAnalytics();
+  }, [loadAllAnalytics]);
+
+  // Handle Manual Sync
+  const handleTriggerSync = async () => {
+    setSyncing(true);
+    setSyncMessage(null);
+    try {
+      const res = await fetch("/api/analytics/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ page_id: selectedPageId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Sync failed.");
+      setSyncMessage(data.message || "Analytics synchronized successfully.");
+      loadAllAnalytics();
+    } catch (err: any) {
+      setSyncMessage(`Sync Notice: ${err?.message}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // Handle CSV Export
+  const handleExportCsv = (type: "pages" | "videos" | "growth") => {
+    const url = `/api/analytics/export?type=${type}&page_id=${selectedPageId}&date_range=${dateRange}`;
+    window.open(url, "_blank");
+  };
+
+  const handleInspectVideo = (video: VideoPerformanceItem) => {
+    setSelectedVideo(video);
+    setDetailOpen(true);
+  };
 
   return (
-    <div className="space-y-6">
+    <div className="p-6 space-y-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-              Cross-Page Analytics & Insights
-            </h2>
-            <Badge variant="demo" className="text-[10px]">
-              Demo Aggregation
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              Facebook Analytics & AI Intelligence
+            </h1>
+            <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">
+              Official Meta v21.0
             </Badge>
           </div>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Centralized telemetry tracking reach, viral coefficient, and engagement trends stored in <code>analytics_daily</code>.
+          <p className="text-xs text-muted-foreground mt-1">
+            Real Facebook Page Insights, Reels retention telemetry, cross-page rankings, and AI-driven content strategy.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" disabled>
-            <FileDown className="h-3.5 w-3.5" />
-            Export CSV (Phase 2)
+        {/* Global Action Toolbar */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Page Switcher */}
+          <select
+            value={selectedPageId}
+            onChange={(e) => setSelectedPageId(e.target.value)}
+            className="h-8 rounded-lg border bg-background px-3 text-xs"
+          >
+            <option value="all">All Connected Pages ({pages.length})</option>
+            {pages.map((p) => (
+              <option key={p.page_id} value={p.page_id}>
+                {p.page_name}
+              </option>
+            ))}
+          </select>
+
+          {/* Date Range Picker */}
+          <select
+            value={dateRange}
+            onChange={(e: any) => setDateRange(e.target.value)}
+            className="h-8 rounded-lg border bg-background px-3 text-xs"
+          >
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="last_7d">Last 7 Days</option>
+            <option value="last_30d">Last 30 Days</option>
+            <option value="last_90d">Last 90 Days</option>
+          </select>
+
+          {/* Sync Button */}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleTriggerSync}
+            disabled={syncing}
+            className="h-8 text-xs gap-1.5"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+            {syncing ? "Syncing..." : "Sync Analytics"}
+          </Button>
+
+          {/* CSV Export Button */}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => handleExportCsv(activeTab === "videos" ? "videos" : "pages")}
+            className="h-8 text-xs gap-1.5"
+          >
+            <FileDown className="h-3.5 w-3.5" /> Export CSV
           </Button>
         </div>
       </div>
 
-      {/* Demo Notice Banner */}
-      <div className="flex items-center justify-between p-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 text-xs">
-        <div className="flex items-center gap-2">
-          <BarChart3 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-          <span className="text-foreground">
-            <strong>Telemetry Engine Status:</strong> Showing sample demonstration figures. Database table <code>analytics_daily</code> is indexed on <code>(page_id, date)</code> ready for Phase 2 Meta Insights API ingestion.
-          </span>
+      {/* Sync Status Alert */}
+      {syncMessage && (
+        <div className="p-3 rounded-xl border bg-muted/40 text-xs text-foreground flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
+            <span>{syncMessage}</span>
+          </div>
+          <Button size="sm" variant="ghost" className="h-6 text-[10px]" onClick={() => setSyncMessage(null)}>
+            Dismiss
+          </Button>
         </div>
-        <Badge variant="outline" className="text-[10px] shrink-0 border-emerald-500/30 text-emerald-600 dark:text-emerald-400">
-          Sample Data
-        </Badge>
+      )}
+
+      {/* Real Data Banner or Waiting for Data Banner */}
+      {!overview.is_real_data && (
+        <div className="p-4 rounded-xl border border-dashed border-amber-500/30 bg-amber-500/5 text-amber-900 dark:text-amber-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="h-5 w-5 text-amber-500 shrink-0" />
+            <div>
+              <div className="font-semibold">No Real Facebook Data Synchronized Yet</div>
+              <div className="text-[11px] opacity-85">
+                Connect your Facebook Page with Meta OAuth and click &quot;Sync Analytics&quot; to fetch official Graph API metrics.
+              </div>
+            </div>
+          </div>
+          <Button size="sm" className="bg-amber-600 hover:bg-amber-700 text-white text-xs shrink-0" onClick={handleTriggerSync}>
+            Sync Facebook Now
+          </Button>
+        </div>
+      )}
+
+      {/* 10 Performance Overview Tiles */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+        <div className="p-3.5 rounded-xl border bg-card shadow-sm space-y-1">
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Eye className="h-3.5 w-3.5 text-blue-500" /> Total Plays
+          </div>
+          <div className="text-xl font-bold text-foreground">
+            {overview.total_plays !== null ? overview.total_plays.toLocaleString() : "N/A"}
+          </div>
+          <div className="text-[10px] text-muted-foreground">Reels playback events</div>
+        </div>
+
+        <div className="p-3.5 rounded-xl border bg-card shadow-sm space-y-1">
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Share2 className="h-3.5 w-3.5 text-emerald-500" /> Total Reach
+          </div>
+          <div className="text-xl font-bold text-foreground">
+            {overview.total_reach !== null ? overview.total_reach.toLocaleString() : "N/A"}
+          </div>
+          <div className="text-[10px] text-muted-foreground">Unique viewer accounts</div>
+        </div>
+
+        <div className="p-3.5 rounded-xl border bg-card shadow-sm space-y-1">
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <BarChart3 className="h-3.5 w-3.5 text-purple-500" /> Impressions
+          </div>
+          <div className="text-xl font-bold text-foreground">
+            {overview.total_impressions !== null ? overview.total_impressions.toLocaleString() : "N/A"}
+          </div>
+          <div className="text-[10px] text-muted-foreground">Total screen feeds</div>
+        </div>
+
+        <div className="p-3.5 rounded-xl border bg-card shadow-sm space-y-1">
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <MessageCircle className="h-3.5 w-3.5 text-amber-500" /> Engagements
+          </div>
+          <div className="text-xl font-bold text-foreground">
+            {overview.total_engagements !== null ? overview.total_engagements.toLocaleString() : "N/A"}
+          </div>
+          <div className="text-[10px] text-muted-foreground">Reactions, comments, shares</div>
+        </div>
+
+        <div className="p-3.5 rounded-xl border bg-card shadow-sm space-y-1">
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Users className="h-3.5 w-3.5 text-primary" /> Total Followers
+          </div>
+          <div className="text-xl font-bold text-foreground">
+            {overview.total_followers !== null ? overview.total_followers.toLocaleString() : "N/A"}
+          </div>
+          <div className="text-[10px] text-muted-foreground">Across connected pages</div>
+        </div>
+
+        <div className="p-3.5 rounded-xl border bg-card shadow-sm space-y-1">
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <TrendingUp className="h-3.5 w-3.5 text-emerald-500" /> Net Follows Added
+          </div>
+          <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
+            {overview.followers_gained !== null
+              ? `+${(overview.followers_gained - (overview.followers_lost || 0)).toLocaleString()}`
+              : "N/A"}
+          </div>
+          <div className="text-[10px] text-muted-foreground">In selected date range</div>
+        </div>
+
+        <div className="p-3.5 rounded-xl border bg-card shadow-sm space-y-1">
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Clock className="h-3.5 w-3.5 text-blue-500" /> Avg Watch Time
+          </div>
+          <div className="text-xl font-bold text-foreground">
+            {overview.average_watch_time !== null ? `${overview.average_watch_time}s` : "N/A"}
+          </div>
+          <div className="text-[10px] text-muted-foreground">Per playback session</div>
+        </div>
+
+        <div className="p-3.5 rounded-xl border bg-card shadow-sm space-y-1">
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Clock className="h-3.5 w-3.5 text-purple-500" /> Total Watch Time
+          </div>
+          <div className="text-xl font-bold text-foreground">
+            {overview.total_watch_time !== null ? `${Math.round(overview.total_watch_time / 60)}m` : "N/A"}
+          </div>
+          <div className="text-[10px] text-muted-foreground">Cumulative watch minutes</div>
+        </div>
+
+        <div className="p-3.5 rounded-xl border bg-card shadow-sm space-y-1">
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Film className="h-3.5 w-3.5 text-primary" /> Published Reels
+          </div>
+          <div className="text-xl font-bold text-foreground">{overview.published_videos}</div>
+          <div className="text-[10px] text-muted-foreground">Synchronized video assets</div>
+        </div>
+
+        <div className="p-3.5 rounded-xl border bg-card shadow-sm space-y-1">
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Clock className="h-3.5 w-3.5 text-muted-foreground" /> Last Synchronized
+          </div>
+          <div className="text-xs font-semibold text-foreground truncate">
+            {overview.last_synced_at ? new Date(overview.last_synced_at).toLocaleTimeString() : "Never"}
+          </div>
+          <div className="text-[10px] text-muted-foreground truncate">
+            {overview.last_synced_at ? new Date(overview.last_synced_at).toLocaleDateString() : "Waiting for sync"}
+          </div>
+        </div>
       </div>
 
-      {/* Top Aggregation Cards (Sample Data) */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {metricHighlights.map((m) => {
-          const Icon = m.icon;
+      {/* Module Navigation Tabs */}
+      <div className="flex border-b text-xs font-medium gap-2">
+        {[
+          { id: "overview", label: "Cross-Page Portfolio", icon: Layers },
+          { id: "videos", label: "Video Performance", icon: Film },
+          { id: "insights", label: "AI Performance Intelligence", icon: BrainCircuit },
+          { id: "growth", label: "Page Growth Tracking", icon: TrendingUp },
+        ].map((tab) => {
+          const Icon = tab.icon;
           return (
-            <Card key={m.label} className="relative overflow-hidden">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  {m.label}
-                </CardTitle>
-                <Icon className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold tracking-tight">{m.value}</div>
-                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                  <TrendingUp className="h-3 w-3 text-emerald-500" />
-                  {m.subtext}
-                </p>
-                <span className="text-[9px] text-muted-foreground/60 italic block mt-1">
-                  Demo Sample Telemetry
-                </span>
-              </CardContent>
-            </Card>
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`flex items-center gap-1.5 py-2.5 px-4 border-b-2 transition-colors ${
+                activeTab === tab.id
+                  ? "border-primary text-primary font-semibold"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {tab.label}
+            </button>
           );
         })}
       </div>
 
-      <Tabs defaultValue="roadmap" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="roadmap">Phase 2 Architecture & Roadmap</TabsTrigger>
-          <TabsTrigger value="charts">Telemetry Dashboard (Demo Preview)</TabsTrigger>
-        </TabsList>
+      {/* TAB 1: CROSS-PAGE PORTFOLIO BENCHMARK */}
+      {activeTab === "overview" && (
+        <CrossPageTable
+          pages={pages}
+          onSelectPage={(pageId) => {
+            setSelectedPageId(pageId);
+            setActiveTab("videos");
+          }}
+        />
+      )}
 
-        <TabsContent value="roadmap" className="space-y-6">
-          {/* Phase 2 Feature Cards Grid */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h3 className="text-sm font-semibold text-foreground">Phase 2 Analytics Engine Architecture</h3>
-                <p className="text-xs text-muted-foreground">
-                  Official Facebook Page Insights synchronization, audience drop-off modeling, and AI content diagnostics.
-                </p>
-              </div>
-              <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                6 Core Modules
-              </Badge>
-            </div>
+      {/* TAB 2: VIDEO PERFORMANCE TABLE */}
+      {activeTab === "videos" && (
+        <VideoPerformanceTable videos={videos} onSelectVideo={handleInspectVideo} />
+      )}
 
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {featureCards.map((feature) => {
-                const Icon = feature.icon;
-                return (
-                  <Card key={feature.title} className="flex flex-col justify-between hover:border-emerald-500/40 transition-colors">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                            <Icon className="h-4 w-4" />
-                          </div>
-                          <div>
-                            <span className="text-[10px] font-mono text-muted-foreground uppercase">Module {feature.id}</span>
-                            <CardTitle className="text-sm font-semibold">{feature.title}</CardTitle>
-                          </div>
-                        </div>
-                        <Badge variant="outline" className="border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-[10px] shrink-0">
-                          {feature.badge}
-                        </Badge>
-                      </div>
-                      <CardDescription className="text-xs font-medium text-foreground/80 mt-1">
-                        {feature.tagline}
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <p className="text-xs text-muted-foreground leading-relaxed">
-                        {feature.description}
-                      </p>
-                      <div className="space-y-1.5 pt-2 border-t">
-                        {feature.capabilities.map((cap) => (
-                          <div key={cap} className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                            <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
-                            <span>{cap}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          </div>
+      {/* TAB 3: AI PERFORMANCE INTELLIGENCE */}
+      {activeTab === "insights" && <AIInsightsCard analysis={aiAnalysis} />}
 
-          {/* Capabilities Roadmap Checklist */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                    <ListChecks className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                    Phase 2 Analytics Capabilities Roadmap
-                  </CardTitle>
-                  <CardDescription className="text-xs">
-                    Comprehensive checklist of telemetry, content intelligence, and reporting features planned for implementation.
-                  </CardDescription>
-                </div>
-                <Badge variant="demo" className="text-[10px]">
-                  Database Schemas Ready
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-                {roadmapItems.map((item) => (
-                  <div
-                    key={item.title}
-                    className="flex items-center justify-between p-2.5 rounded-lg border bg-muted/20 text-xs"
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                      <span className="font-medium text-foreground">{item.title}</span>
-                    </div>
-                    <Badge variant="outline" className="text-[9px] border-muted-foreground/30 text-muted-foreground">
-                      {item.status}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+      {/* TAB 4: GROWTH TRACKING */}
+      {activeTab === "growth" && <GrowthChart snapshots={growthSnapshots} />}
 
-        <TabsContent value="charts" className="space-y-6">
-          <EmptyState
-            icon={BarChart3}
-            title="Automated Facebook Insights Webhook Sync"
-            description="The table `analytics_daily` is fully structured with indexes and constraints on (page_id, date). In Phase 2, daily synchronizers will pull official Facebook Page Insights API metrics directly into this dashboard."
-            phase="Phase 2 Telemetry"
-          />
-        </TabsContent>
-      </Tabs>
+      {/* Detailed Video Analytics Drawer */}
+      <VideoDetailDrawer
+        video={selectedVideo}
+        isOpen={detailOpen}
+        onClose={() => {
+          setDetailOpen(false);
+          setSelectedVideo(null);
+        }}
+      />
     </div>
   );
 }
