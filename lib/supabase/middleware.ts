@@ -1,6 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
-import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY } from "./client";
+import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY, isSupabaseConfigured } from "./client";
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({
@@ -12,27 +12,6 @@ export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isProtectedPath = pathname.startsWith("/dashboard");
   const isAuthPath = pathname.startsWith("/login");
-
-  // If Supabase credentials are not configured in environment, allow seamless access with auto-persisted session
-  if (!isSupabaseConfigured()) {
-    if (isProtectedPath) {
-      // Auto-set the persistent 1-year session cookie so the user never has to re-connect
-      response.cookies.set({
-        name: "demo_auth_session",
-        value: "true",
-        path: "/",
-        maxAge: 31536000,
-        sameSite: "lax",
-      });
-      return response;
-    }
-    if (isAuthPath) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/dashboard";
-      return NextResponse.redirect(url);
-    }
-    return response;
-  }
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || DEFAULT_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
