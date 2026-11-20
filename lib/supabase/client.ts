@@ -1,26 +1,19 @@
 import { createBrowserClient } from "@supabase/ssr";
 
+export const DEFAULT_SUPABASE_URL = "https://cbjjudqdfpunlpcnvsig.supabase.co";
+export const DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_U2YTYozFeR3sUN7qLq8ikw_XSUZ1Qjp";
+
 /**
  * Creates a Supabase client for client-side components (browser).
- * If environment variables are missing or placeholders, it provides
- * safe fallback configuration to prevent runtime crashes.
+ * Connects directly to the real Supabase project.
  */
 export function createClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder-project.supabase.co";
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-anon-key";
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
 
   return createBrowserClient(supabaseUrl, supabaseAnonKey);
 }
 
 export function isSupabaseConfigured(): boolean {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  return Boolean(
-    url &&
-    key &&
-    !url.includes("your-project-id") &&
-    !url.includes("placeholder-project") &&
-    !key.includes("your-anon-key") &&
-    !key.includes("placeholder-anon-key")
-  );
+  return true;
 }

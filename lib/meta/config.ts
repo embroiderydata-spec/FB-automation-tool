@@ -9,7 +9,7 @@ export const META_CONFIG = {
   appSecret: process.env.META_APP_SECRET || "",
   redirectUri:
     process.env.META_OAUTH_REDIRECT_URI ||
-    `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/meta/callback`,
+    `${process.env.NEXT_PUBLIC_APP_URL || (typeof window !== "undefined" ? window.location.origin : "https://fb-automation-tool-seven.vercel.app")}/api/meta/callback`,
   
   // Essential permissions required for Page Discovery, Management & Analytics
   scopes: [

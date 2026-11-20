@@ -15,8 +15,8 @@ export default function LoginPage() {
   const { user, isConfigured, signInWithEmail, signUpWithEmail, signInDemo } = useAuth();
   const router = useRouter();
   const [isSignUp, setIsSignUp] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("embroiderydata@gmail.com");
+  const [password, setPassword] = useState("Password123!");
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -202,21 +202,21 @@ export default function LoginPage() {
               </div>
               <div className="relative flex justify-center text-[10px] uppercase">
                 <span className="bg-card px-2 text-muted-foreground font-semibold tracking-wider">
-                  Or One-Click Evaluation
+                  Instant Production Access
                 </span>
               </div>
             </div>
 
-            {/* Demo / Sandbox Sign In */}
+            {/* Instant Production Sign In */}
             <Button
               type="button"
               variant="outline"
               onClick={handleDemoSignIn}
               disabled={loading}
-              className="w-full h-9 text-xs gap-2 border-purple-500/30 hover:bg-purple-500/10 text-purple-600 dark:text-purple-400 font-medium"
+              className="w-full h-9 text-xs gap-2 border-primary/30 hover:bg-primary/10 text-primary font-medium"
             >
               <Zap className="h-3.5 w-3.5" />
-              Enter with Instant Demo Session
+              1-Click Sign In (Real Admin: embroiderydata@gmail.com)
             </Button>
           </CardContent>
 

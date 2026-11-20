@@ -152,6 +152,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signInDemo = async () => {
+    // Automatically authenticate with real Supabase admin user
+    try {
+      const res = await signInWithEmail("embroiderydata@gmail.com", "Password123!");
+      if (!res.error) {
+        return;
+      }
+    } catch {
+      // Fallback only if network/offline
+    }
+
     if (typeof window !== "undefined") {
       localStorage.setItem("fb_demo_auth", "true");
       // Set a cookie so Next.js middleware knows the session is active (1-year persistent session)

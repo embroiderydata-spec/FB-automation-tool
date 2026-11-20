@@ -4,12 +4,15 @@ const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12; // Recommended 12 bytes for GCM
 const AUTH_TAG_LENGTH = 16; // 16 bytes auth tag
 
+export const DEFAULT_TOKEN_ENCRYPTION_KEY =
+  "ba411ecef0bd56c7f0fca8d880c24e53909fa6902f6ead279dc460c2acdff4f8";
+
 /**
  * Validates and retrieves the 32-byte encryption key buffer from process.env.TOKEN_ENCRYPTION_KEY.
- * Fails securely if the key is missing or invalid length.
+ * Falls back to DEFAULT_TOKEN_ENCRYPTION_KEY if unconfigured in environment.
  */
 export function getEncryptionKey(): Buffer {
-  const rawKey = process.env.TOKEN_ENCRYPTION_KEY;
+  const rawKey = process.env.TOKEN_ENCRYPTION_KEY || DEFAULT_TOKEN_ENCRYPTION_KEY;
 
   if (!rawKey) {
     throw new Error(
