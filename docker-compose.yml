@@ -1,0 +1,50 @@
+version: "3.8"
+
+services:
+  # Next.js Web Dashboard & API
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pagepulse-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    env_file:
+      - .env.local
+    depends_on:
+      - redis
+
+  # Dedicated Background Worker (Processes Video Rendering, AI Pipelines & Scheduled Publishing)
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pagepulse-worker
+    restart: unless-stopped
+    command: ["npx", "tsx", "worker/runner.ts"]
+    env_file:
+      - .env.local
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4096M
+
+  # Optional Redis Instance for High-Throughput Queue Backing
+  redis:
+    image: redis:7-alpine
+    container_name: pagepulse-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+volumes:
+  redis-data:

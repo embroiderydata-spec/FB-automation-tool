@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth/auth-context";
 import { useTheme } from "next-themes";
+import { SystemMonitor } from "@/components/settings/system-monitor";
 
 export default function SettingsPage() {
   const { user, isConfigured } = useAuth();
@@ -23,13 +24,16 @@ export default function SettingsPage() {
             Platform Settings & Architecture
           </h2>
           <Badge variant="outline" className="text-[10px]">
-            Phase 1
+            Phase 2.8 Production Ready
           </Badge>
         </div>
         <p className="text-xs text-muted-foreground">
-          Manage system configurations, authentication state, and multi-page capacity limits.
+          Manage system configurations, reliability monitoring, background worker telemetry, and multi-page capacity limits.
         </p>
       </div>
+
+      {/* Production Health & Reliability Monitor */}
+      <SystemMonitor />
 
       <div className="grid gap-6 md:grid-cols-2">
         {/* Profile Card */}
