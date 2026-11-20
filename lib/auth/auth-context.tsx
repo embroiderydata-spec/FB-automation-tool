@@ -46,12 +46,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const storedDemo = typeof window !== "undefined" ? localStorage.getItem("fb_demo_auth") : null;
 
     if (storedDemo) {
+      if (typeof window !== "undefined") {
+        document.cookie = "demo_auth_session=true; path=/; max-age=31536000; SameSite=Lax";
+      }
       setUser(DEMO_USER);
       setLoading(false);
       return;
     }
 
     if (!configured) {
+      // Auto-connect when environment is unconfigured so the user never has to repeatedly connect manually
+      if (typeof window !== "undefined") {
+        localStorage.setItem("fb_demo_auth", "true");
+        document.cookie = "demo_auth_session=true; path=/; max-age=31536000; SameSite=Lax";
+      }
+      setUser(DEMO_USER);
       setLoading(false);
       return;
     }
@@ -145,8 +154,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInDemo = async () => {
     if (typeof window !== "undefined") {
       localStorage.setItem("fb_demo_auth", "true");
-      // Set a cookie so Next.js middleware knows the session is active
-      document.cookie = "demo_auth_session=true; path=/; max-age=86400; SameSite=Lax";
+      // Set a cookie so Next.js middleware knows the session is active (1-year persistent session)
+      document.cookie = "demo_auth_session=true; path=/; max-age=31536000; SameSite=Lax";
     }
     setUser(DEMO_USER);
     router.push("/dashboard");

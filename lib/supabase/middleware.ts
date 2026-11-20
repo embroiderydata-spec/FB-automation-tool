@@ -13,15 +13,20 @@ export async function updateSession(request: NextRequest) {
   const isProtectedPath = pathname.startsWith("/dashboard");
   const isAuthPath = pathname.startsWith("/login");
 
-  // If Supabase credentials are not configured in environment, check for demo session cookie
+  // If Supabase credentials are not configured in environment, allow seamless access with auto-persisted session
   if (!isSupabaseConfigured()) {
-    const demoSession = request.cookies.get("demo_auth_session")?.value;
-    if (isProtectedPath && !demoSession) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/login";
-      return NextResponse.redirect(url);
+    if (isProtectedPath) {
+      // Auto-set the persistent 1-year session cookie so the user never has to re-connect
+      response.cookies.set({
+        name: "demo_auth_session",
+        value: "true",
+        path: "/",
+        maxAge: 31536000,
+        sameSite: "lax",
+      });
+      return response;
     }
-    if (isAuthPath && demoSession) {
+    if (isAuthPath) {
       const url = request.nextUrl.clone();
       url.pathname = "/dashboard";
       return NextResponse.redirect(url);
@@ -77,19 +82,17 @@ export async function updateSession(request: NextRequest) {
   // Check Supabase session
   const { data: { user } } = await supabase.auth.getUser();
 
+  const demoSession = request.cookies.get("demo_auth_session")?.value;
+
   // Redirect unauthenticated users from protected dashboard routes to /login
-  if (isProtectedPath && !user) {
-    // Check if demo session cookie exists
-    const demoSession = request.cookies.get("demo_auth_session")?.value;
-    if (!demoSession) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/login";
-      return NextResponse.redirect(url);
-    }
+  if (isProtectedPath && !user && !demoSession) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    return NextResponse.redirect(url);
   }
 
-  // Redirect authenticated users from /login to /dashboard
-  if (isAuthPath && user) {
+  // Redirect authenticated or active session users from /login to /dashboard
+  if (isAuthPath && (user || demoSession)) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);
