@@ -61,27 +61,30 @@ export default function SettingsPage() {
   async function loadSettings() {
     try {
       setLoading(true);
+      setErrorMessage(null);
       const res = await fetch("/api/settings");
-      if (res.ok) {
-        const data = await res.json();
-        if (data.settings) {
-          const s = data.settings;
-          setTimezone(s.timezone || "UTC");
-          setDailyBudget(s.daily_budget_limit || 25.0);
-          setMonthlyBudget(s.monthly_budget_limit || 500.0);
-          setMaxCostPerVideo(s.max_cost_per_video || 1.5);
-          setMaxPostsPerDay(s.max_posts_per_day_per_page || 3);
-          setDefaultLlm(s.default_llm_provider || "openai");
-          setDefaultVideo(s.default_video_provider || "replicate");
-          setDefaultVoice(s.default_voice_provider || "elevenlabs");
-          setAutoPublish(s.auto_publish_default ?? false);
-          setRequireApproval(s.require_manual_approval ?? true);
-          setNotifyPublish(s.notify_on_publish ?? true);
-          setNotifyFailure(s.notify_on_failure ?? true);
-        }
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to load platform settings.");
       }
-    } catch {
-      // Ignore
+      const data = await res.json();
+      if (data.settings) {
+        const s = data.settings;
+        setTimezone(s.timezone || "UTC");
+        setDailyBudget(Number(s.daily_budget_limit ?? 25.0));
+        setMonthlyBudget(Number(s.monthly_budget_limit ?? 500.0));
+        setMaxCostPerVideo(Number(s.max_cost_per_video ?? 1.5));
+        setMaxPostsPerDay(Number(s.max_posts_per_day_per_page ?? 3));
+        setDefaultLlm(s.default_llm_provider || "openai");
+        setDefaultVideo(s.default_video_provider || "replicate");
+        setDefaultVoice(s.default_voice_provider || "elevenlabs");
+        setAutoPublish(Boolean(s.auto_publish_default));
+        setRequireApproval(s.require_manual_approval !== false);
+        setNotifyPublish(s.notify_on_publish !== false);
+        setNotifyFailure(s.notify_on_failure !== false);
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || "Failed to load settings.");
     } finally {
       setLoading(false);
     }
@@ -116,8 +119,24 @@ export default function SettingsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to save settings.");
 
+      if (data.settings) {
+        const s = data.settings;
+        setTimezone(s.timezone || "UTC");
+        setDailyBudget(Number(s.daily_budget_limit ?? 25.0));
+        setMonthlyBudget(Number(s.monthly_budget_limit ?? 500.0));
+        setMaxCostPerVideo(Number(s.max_cost_per_video ?? 1.5));
+        setMaxPostsPerDay(Number(s.max_posts_per_day_per_page ?? 3));
+        setDefaultLlm(s.default_llm_provider || "openai");
+        setDefaultVideo(s.default_video_provider || "replicate");
+        setDefaultVoice(s.default_voice_provider || "elevenlabs");
+        setAutoPublish(Boolean(s.auto_publish_default));
+        setRequireApproval(s.require_manual_approval !== false);
+        setNotifyPublish(s.notify_on_publish !== false);
+        setNotifyFailure(s.notify_on_failure !== false);
+      }
+
       setSavedSuccess(true);
-      setTimeout(() => setSavedSuccess(false), 2500);
+      setTimeout(() => setSavedSuccess(false), 3000);
     } catch (err: any) {
       setErrorMessage(err.message || "Error saving settings.");
     } finally {
@@ -145,14 +164,25 @@ export default function SettingsPage() {
       {/* Production Health & Reliability Monitor */}
       <SystemMonitor />
 
-      <form onSubmit={handleSaveSettings} className="space-y-6">
-        {errorMessage && (
-          <div className="p-3 rounded-lg border border-destructive/30 bg-destructive/10 text-destructive text-xs">
-            {errorMessage}
-          </div>
-        )}
+      {loading ? (
+        <Card className="border shadow-sm">
+          <CardContent className="flex flex-col items-center justify-center p-16 text-muted-foreground space-y-3">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <div className="text-center">
+              <p className="text-sm font-medium text-foreground">Loading Platform Settings</p>
+              <p className="text-xs text-muted-foreground">Fetching persisted configurations from Supabase...</p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <form onSubmit={handleSaveSettings} className="space-y-6">
+          {errorMessage && (
+            <div className="p-3 rounded-lg border border-destructive/30 bg-destructive/10 text-destructive text-xs">
+              {errorMessage}
+            </div>
+          )}
 
-        <div className="grid gap-6 md:grid-cols-2">
+          <div className="grid gap-6 md:grid-cols-2">
           {/* Automation & Budget Guard Settings */}
           <Card>
             <CardHeader className="pb-3">
@@ -346,6 +376,7 @@ export default function SettingsPage() {
           </Button>
         </div>
       </form>
+      )}
 
       {/* Profile & Appearance Section */}
       <div className="grid gap-6 md:grid-cols-2">
