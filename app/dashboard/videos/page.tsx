@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Film,
   Video,
@@ -50,7 +51,9 @@ import { SubtitlePreview } from "@/components/video/subtitle-preview";
 import { VoiceStudio } from "@/components/video/voice-studio";
 import { SubtitlePresetStyle } from "@/lib/video/types";
 
-export default function VideoLibraryPage() {
+function VideoLibraryContent() {
+  const searchParams = useSearchParams();
+  const storyboardIdParam = searchParams?.get("storyboard_id");
   const [activeTab, setActiveTab] = useState("studio");
 
   // Global State
@@ -105,10 +108,10 @@ export default function VideoLibraryPage() {
   useEffect(() => {
     fetchPages();
     fetchProviders();
-    fetchStoryboards();
+    fetchStoryboards(storyboardIdParam || undefined);
     fetchLibrary();
     fetchRenderQueue();
-  }, []);
+  }, [storyboardIdParam]);
 
   // Polling for Render Queue when active jobs exist
   useEffect(() => {
@@ -151,14 +154,15 @@ export default function VideoLibraryPage() {
     }
   }
 
-  async function fetchStoryboards() {
+  async function fetchStoryboards(targetId?: string) {
     try {
       const res = await fetch("/api/content/storyboards");
       const data = await res.json();
       if (res.ok && data.storyboards) {
         setStoryboards(data.storyboards);
-        if (data.storyboards.length > 0 && !selectedStoryboardId) {
-          loadStoryboardScenes(data.storyboards[0].id);
+        const toLoad = targetId || (data.storyboards.length > 0 ? data.storyboards[0].id : null);
+        if (toLoad) {
+          loadStoryboardScenes(toLoad);
         }
       }
     } catch {
@@ -1325,5 +1329,20 @@ export default function VideoLibraryPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function VideoLibraryPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex flex-col items-center justify-center p-16 text-muted-foreground">
+          <Loader2 className="h-6 w-6 animate-spin text-primary mb-2" />
+          <p className="text-xs">Loading Video Production Studio...</p>
+        </div>
+      }
+    >
+      <VideoLibraryContent />
+    </Suspense>
   );
 }

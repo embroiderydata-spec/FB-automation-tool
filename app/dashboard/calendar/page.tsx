@@ -22,11 +22,16 @@ import {
   Film,
   RefreshCw,
   Send,
+  RotateCcw,
+  X,
+  Play,
+  Loader2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
 import { PublishingJob } from "@/lib/publishing/types";
 import { BulkSchedulerModal } from "@/components/publishing/bulk-scheduler-modal";
 
@@ -40,9 +45,12 @@ export default function ContentCalendarPage() {
   const [timezone, setTimezone] = useState("UTC");
   const [loading, setLoading] = useState(true);
 
-  // Modals
+  // Modals & Action State
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [selectedJob, setSelectedJob] = useState<PublishingJob | null>(null);
+  const [rescheduleInput, setRescheduleInput] = useState("");
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   useEffect(() => {
     loadCalendarData();
@@ -90,8 +98,10 @@ export default function ContentCalendarPage() {
     const next = new Date(selectedDate);
     if (viewMode === "month") {
       next.setMonth(next.getMonth() - 1);
-    } else {
+    } else if (viewMode === "week") {
       next.setDate(next.getDate() - 7);
+    } else {
+      next.setDate(next.getDate() - 14);
     }
     setSelectedDate(next);
   }
@@ -100,8 +110,10 @@ export default function ContentCalendarPage() {
     const next = new Date(selectedDate);
     if (viewMode === "month") {
       next.setMonth(next.getMonth() + 1);
-    } else {
+    } else if (viewMode === "week") {
       next.setDate(next.getDate() + 7);
+    } else {
+      next.setDate(next.getDate() + 14);
     }
     setSelectedDate(next);
   }
@@ -118,9 +130,59 @@ export default function ContentCalendarPage() {
   function getJobsForDay(dayNumber: number): PublishingJob[] {
     const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(dayNumber).padStart(2, "0")}`;
     return jobs.filter((j) => {
-      const jobDateStr = j.scheduled_at.split("T")[0];
+      const jobDateStr = j.scheduled_at ? j.scheduled_at.split("T")[0] : "";
       return jobDateStr === dateStr;
     });
+  }
+
+  // Week View Days calculation
+  const startOfWeek = new Date(selectedDate);
+  startOfWeek.setDate(selectedDate.getDate() - selectedDate.getDay());
+  const weekDays = Array.from({ length: 7 }).map((_, i) => {
+    const d = new Date(startOfWeek);
+    d.setDate(startOfWeek.getDate() + i);
+    return d;
+  });
+
+  // Handle Job Actions directly from Calendar Dialog
+  async function handleJobAction(action: "reschedule" | "cancel" | "publish_now") {
+    if (!selectedJob) return;
+    try {
+      setActionLoading(true);
+      setActionNotice(null);
+
+      const payload: any = { action };
+      if (action === "reschedule") {
+        if (!rescheduleInput) {
+          setActionNotice("Please select a new date and time.");
+          setActionLoading(false);
+          return;
+        }
+        payload.scheduled_at = new Date(rescheduleInput).toISOString();
+      }
+
+      const res = await fetch(`/api/publishing/queue/${selectedJob.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setActionNotice(data.error || "Action failed.");
+      } else {
+        setActionNotice(`Success! Job ${action} executed.`);
+        await loadCalendarData();
+        setTimeout(() => {
+          setSelectedJob(null);
+          setActionNotice(null);
+        }, 1200);
+      }
+    } catch (err: any) {
+      setActionNotice(err.message || "Network error.");
+    } finally {
+      setActionLoading(false);
+    }
   }
 
   return (
@@ -133,7 +195,7 @@ export default function ContentCalendarPage() {
               Cross-Page Content Calendar
             </h2>
             <Badge variant="outline" className="border-blue-500/40 text-blue-600 dark:text-blue-400 text-[10px]">
-              Phase 2.4 Timezone Scheduler
+              Multi-Timezone Scheduler
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
@@ -168,8 +230,7 @@ export default function ContentCalendarPage() {
       <Tabs defaultValue="calendar" className="space-y-6">
         <TabsList>
           <TabsTrigger value="calendar">Schedule Matrix</TabsTrigger>
-          <TabsTrigger value="capabilities">Calendar Features</TabsTrigger>
-          <TabsTrigger value="roadmap">Scheduling Roadmap</TabsTrigger>
+          <TabsTrigger value="summary">Network Queue Summary</TabsTrigger>
         </TabsList>
 
         <TabsContent value="calendar" className="space-y-4">
@@ -191,7 +252,7 @@ export default function ContentCalendarPage() {
 
               {/* View Mode Toggle */}
               <div className="flex items-center border rounded-md bg-background p-0.5">
-                {(["month", "list"] as const).map((mode) => (
+                {(["month", "week", "list"] as const).map((mode) => (
                   <Button
                     key={mode}
                     variant={viewMode === mode ? "default" : "ghost"}
@@ -215,7 +276,7 @@ export default function ContentCalendarPage() {
                   onChange={(e) => setSelectedPageId(e.target.value)}
                   className="h-7 text-xs rounded border bg-background px-2"
                 >
-                  <option value="all">All Pages</option>
+                  <option value="all">All Pages ({pages.length})</option>
                   {pages.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
@@ -242,7 +303,7 @@ export default function ContentCalendarPage() {
           </div>
 
           {/* Month View Grid */}
-          {viewMode === "month" ? (
+          {viewMode === "month" && (
             <Card className="overflow-hidden">
               <CardContent className="p-0">
                 {/* Day Header */}
@@ -297,29 +358,23 @@ export default function ContentCalendarPage() {
                           {dayJobs.map((j) => {
                             const isPub = j.status === "published";
                             const isFail = j.status === "failed";
-
                             return (
                               <div
                                 key={j.id}
-                                onClick={() => setSelectedJob(j)}
-                                className={`p-1 rounded border text-[10px] truncate cursor-pointer transition-colors ${
+                                onClick={() => {
+                                  setSelectedJob(j);
+                                  setRescheduleInput(j.scheduled_at ? j.scheduled_at.slice(0, 16) : "");
+                                }}
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-medium truncate cursor-pointer transition-all ${
                                   isPub
-                                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
+                                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
                                     : isFail
-                                    ? "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300"
-                                    : "bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-300"
+                                    ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
+                                    : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 hover:bg-blue-500/20"
                                 }`}
-                                title={`${j.video?.title || "Reel"} (${new Date(j.scheduled_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})`}
+                                title={`${j.video?.title || "Reel"} (${j.status})`}
                               >
-                                <span className="font-semibold block truncate">
-                                  {j.video?.title || "Reel"}
-                                </span>
-                                <span className="text-[9px] opacity-75 block">
-                                  {new Date(j.scheduled_at).toLocaleTimeString([], {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
-                                </span>
+                                {j.video?.title || "Reel"}
                               </div>
                             );
                           })}
@@ -330,136 +385,133 @@ export default function ContentCalendarPage() {
                 </div>
               </CardContent>
             </Card>
-          ) : (
-            /* List View */
-            <div className="border rounded-lg bg-card divide-y text-xs">
-              {jobs.length === 0 ? (
-                <div className="py-12 text-center text-muted-foreground">
-                  No scheduled posts found in this timeframe.
-                </div>
-              ) : (
-                jobs.map((job) => (
-                  <div
-                    key={job.id}
-                    onClick={() => setSelectedJob(job)}
-                    className="p-3.5 flex items-center justify-between gap-3 hover:bg-muted/30 cursor-pointer transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-7 bg-black rounded flex items-center justify-center shrink-0">
-                        {job.video?.thumbnail_url ? (
-                          <img src={job.video.thumbnail_url} alt="" className="h-full w-full object-cover" />
-                        ) : (
-                          <Film className="h-3 w-3 text-white/50" />
-                        )}
-                      </div>
-                      <div>
-                        <span className="font-semibold text-foreground block">{job.video?.title || "Reel"}</span>
-                        <span className="text-[11px] text-muted-foreground block">
-                          Destination: {job.facebook_page?.page_name || "Facebook Page"} •{" "}
-                          {new Date(job.scheduled_at).toLocaleDateString()} at{" "}
-                          {new Date(job.scheduled_at).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}{" "}
-                          ({job.timezone || "UTC"})
-                        </span>
-                      </div>
+          )}
+
+          {/* Week View */}
+          {viewMode === "week" && (
+            <Card className="overflow-hidden">
+              <CardContent className="p-0">
+                <div className="grid grid-cols-7 border-b bg-muted/40 text-center text-xs font-semibold py-2">
+                  {weekDays.map((date, idx) => (
+                    <div key={idx} className="space-y-0.5">
+                      <span className="text-muted-foreground text-[11px] block">{daysOfWeek[date.getDay()]}</span>
+                      <span className="text-foreground font-bold">{date.getDate()}</span>
                     </div>
-                    <Badge variant={job.status === "published" ? "success" : "outline"} className="text-[10px]">
-                      {job.status}
-                    </Badge>
-                  </div>
-                ))
-              )}
-            </div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-7 divide-x text-xs min-h-[300px]">
+                  {weekDays.map((date, idx) => {
+                    const dateStr = date.toISOString().split("T")[0];
+                    const dayJobs = jobs.filter((j) => j.scheduled_at && j.scheduled_at.split("T")[0] === dateStr);
+                    return (
+                      <div key={idx} className="p-2 space-y-1.5 bg-card hover:bg-muted/20">
+                        {dayJobs.map((j) => (
+                          <div
+                            key={j.id}
+                            onClick={() => {
+                              setSelectedJob(j);
+                              setRescheduleInput(j.scheduled_at ? j.scheduled_at.slice(0, 16) : "");
+                            }}
+                            className="p-1.5 rounded border text-[11px] cursor-pointer hover:border-primary/50 bg-background space-y-1"
+                          >
+                            <span className="font-semibold block truncate">{j.video?.title || "Reel"}</span>
+                            <div className="flex items-center justify-between text-[9px] text-muted-foreground">
+                              <span>{new Date(j.scheduled_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                              <Badge variant="outline" className="text-[8px] py-0 px-1 capitalize">
+                                {j.status}
+                              </Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* List View */}
+          {viewMode === "list" && (
+            <Card>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="border-b bg-muted/40 text-muted-foreground text-[11px] uppercase tracking-wider font-semibold">
+                      <tr>
+                        <th className="px-4 py-3">Scheduled Time</th>
+                        <th className="px-4 py-3">Video Title</th>
+                        <th className="px-4 py-3">Facebook Page</th>
+                        <th className="px-4 py-3">Status</th>
+                        <th className="px-4 py-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {jobs.map((j) => (
+                        <tr key={j.id} className="hover:bg-muted/30 transition-colors">
+                          <td className="px-4 py-3 font-mono text-muted-foreground whitespace-nowrap">
+                            {new Date(j.scheduled_at).toLocaleString()}
+                          </td>
+                          <td className="px-4 py-3 font-semibold text-foreground max-w-xs truncate">
+                            {j.video?.title || "Facebook Reel"}
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground">
+                            {j.facebook_page?.page_name || "Page"}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge
+                              variant={
+                                j.status === "published"
+                                  ? "success"
+                                  : j.status === "failed"
+                                  ? "destructive"
+                                  : "outline"
+                              }
+                              className="text-[10px] capitalize"
+                            >
+                              {j.status}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 text-xs text-primary"
+                              onClick={() => {
+                                setSelectedJob(j);
+                                setRescheduleInput(j.scheduled_at ? j.scheduled_at.slice(0, 16) : "");
+                              }}
+                            >
+                              Manage
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           )}
         </TabsContent>
 
-        <TabsContent value="capabilities" className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {[
-              {
-                title: "Multi-Page Calendar",
-                desc: "Unified schedule matrix color-coding posts across up to 100 Facebook Pages.",
-                icon: Layers,
-              },
-              {
-                title: "Audience Peak Mapping",
-                desc: "Maps time slots to highest viewer engagement windows per geographic region.",
-                icon: Sparkles,
-              },
-              {
-                title: "Batch Cadence Engine",
-                desc: "One-click batch queueing with custom intervals (e.g. 1 Reel every 6 hours).",
-                icon: Zap,
-              },
-              {
-                title: "Conflict Guardrails",
-                desc: "Automatically prevents scheduling the same video twice to the same Facebook Page.",
-                icon: AlertTriangle,
-              },
-              {
-                title: "Timezone Preservation",
-                desc: "Prevents silent timezone shifts by honoring Page-configured target timezones.",
-                icon: Globe,
-              },
-              {
-                title: "Reels UI Safe Margin",
-                desc: "Subtitles and watermarks aligned outside Facebook Reel player icon overlays.",
-                icon: Film,
-              },
-            ].map((card, idx) => {
-              const Icon = card.icon;
-              return (
-                <Card key={idx}>
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="p-2 rounded-lg bg-primary/10 text-primary">
-                        <Icon className="h-4 w-4" />
-                      </div>
-                      <CardTitle className="text-sm font-semibold">{card.title}</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-xs text-muted-foreground leading-relaxed">{card.desc}</p>
-                  </CardContent>
-                </Card>
-              );
-            })}
+        {/* Network Queue Summary Tab */}
+        <TabsContent value="summary" className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Card className="p-4 space-y-1">
+              <span className="text-xs text-muted-foreground">Total Scheduled Posts</span>
+              <p className="text-2xl font-bold font-mono">{jobs.filter((j) => j.status === "scheduled" || j.status === "queued").length}</p>
+            </Card>
+            <Card className="p-4 space-y-1">
+              <span className="text-xs text-muted-foreground">Total Published Lifetime</span>
+              <p className="text-2xl font-bold font-mono text-emerald-500">{jobs.filter((j) => j.status === "published").length}</p>
+            </Card>
+            <Card className="p-4 space-y-1">
+              <span className="text-xs text-muted-foreground">Failed Deliveries</span>
+              <p className="text-2xl font-bold font-mono text-rose-500">{jobs.filter((j) => j.status === "failed").length}</p>
+            </Card>
           </div>
-        </TabsContent>
-
-        <TabsContent value="roadmap" className="space-y-6">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <ListChecks className="h-4 w-4 text-primary" />
-                Phase 2.4 Calendar Scheduler Roadmap
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Comprehensive checklist of cross-page calendar scheduler capabilities.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 text-xs">
-                {[
-                  { name: "Monthly Schedule Grid", status: "Active" },
-                  { name: "List Agenda View", status: "Active" },
-                  { name: "Page-Specific Filtering", status: "Active" },
-                  { name: "Timezone Conversion & Display", status: "Active" },
-                  { name: "Duplicate Video Warning", status: "Active" },
-                  { name: "Staggered Slot Auto-Spacing", status: "Active" },
-                ].map((item, idx) => (
-                  <div key={idx} className="p-2.5 rounded border bg-muted/20 flex items-center justify-between">
-                    <span className="font-medium text-foreground">{item.name}</span>
-                    <Badge variant="success" className="text-[9px]">
-                      {item.status}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
         </TabsContent>
       </Tabs>
 
@@ -472,18 +524,24 @@ export default function ContentCalendarPage() {
         videos={videos}
       />
 
-      {/* Post Details Dialog */}
+      {/* Post Details & Reschedule Dialog */}
       {selectedJob && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="relative w-full max-w-md rounded-xl border bg-background shadow-2xl p-5 space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="relative w-full max-w-md rounded-xl border bg-card shadow-2xl p-5 space-y-4 text-xs">
             <div className="flex items-center justify-between border-b pb-3">
               <h3 className="text-sm font-semibold text-foreground">Scheduled Reel Details</h3>
-              <Badge variant="outline" className="text-[10px]">
+              <Badge variant="outline" className="text-[10px] capitalize">
                 {selectedJob.status}
               </Badge>
             </div>
 
-            <div className="space-y-2 text-xs">
+            {actionNotice && (
+              <div className="p-2.5 rounded bg-primary/10 border border-primary/20 text-primary text-xs">
+                {actionNotice}
+              </div>
+            )}
+
+            <div className="space-y-2">
               <div>
                 <span className="text-muted-foreground block text-[11px]">Video:</span>
                 <span className="font-semibold text-foreground">{selectedJob.video?.title || "Reel"}</span>
@@ -497,36 +555,77 @@ export default function ContentCalendarPage() {
               </div>
 
               <div>
-                <span className="text-muted-foreground block text-[11px]">Scheduled For:</span>
+                <span className="text-muted-foreground block text-[11px]">Current Slot:</span>
                 <span className="font-semibold text-foreground">
                   {new Date(selectedJob.scheduled_at).toLocaleString()} ({selectedJob.timezone || "UTC"})
                 </span>
               </div>
 
-              <div>
-                <span className="text-muted-foreground block text-[11px]">Caption:</span>
-                <p className="p-2.5 rounded bg-muted/30 text-muted-foreground text-[11px] leading-relaxed">
-                  {selectedJob.caption}
-                </p>
-              </div>
-
-              {selectedJob.published_url && (
+              {selectedJob.caption && (
                 <div>
-                  <span className="text-muted-foreground block text-[11px]">Published Link:</span>
-                  <a
-                    href={selectedJob.published_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary underline text-[11px] break-all"
-                  >
-                    {selectedJob.published_url}
-                  </a>
+                  <span className="text-muted-foreground block text-[11px]">Caption:</span>
+                  <p className="p-2 rounded bg-muted/30 text-muted-foreground text-[11px] leading-relaxed">
+                    {selectedJob.caption}
+                  </p>
                 </div>
               )}
+
+              {/* Reschedule Input */}
+              <div className="pt-2 border-t space-y-1.5">
+                <span className="text-muted-foreground font-semibold block text-[11px]">Reschedule Publishing Window:</span>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="datetime-local"
+                    value={rescheduleInput}
+                    onChange={(e) => setRescheduleInput(e.target.value)}
+                    className="h-8 text-xs bg-background"
+                  />
+                  <Button
+                    size="sm"
+                    disabled={actionLoading}
+                    onClick={() => handleJobAction("reschedule")}
+                    className="h-8 text-xs bg-indigo-600 hover:bg-indigo-700 text-white shrink-0"
+                  >
+                    Reschedule
+                  </Button>
+                </div>
+              </div>
             </div>
 
-            <div className="border-t pt-3 flex justify-end">
-              <Button size="sm" onClick={() => setSelectedJob(null)} className="h-7 text-xs">
+            {/* Action Buttons */}
+            <div className="border-t pt-3 flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                {selectedJob.status !== "published" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={actionLoading}
+                    onClick={() => handleJobAction("cancel")}
+                    className="h-7 text-xs text-rose-500 hover:text-rose-600"
+                  >
+                    Cancel Post
+                  </Button>
+                )}
+
+                {selectedJob.status !== "published" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={actionLoading}
+                    onClick={() => handleJobAction("publish_now")}
+                    className="h-7 text-xs text-emerald-600 hover:text-emerald-700"
+                  >
+                    Publish Now
+                  </Button>
+                )}
+              </div>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedJob(null)}
+                className="h-7 text-xs"
+              >
                 Close
               </Button>
             </div>

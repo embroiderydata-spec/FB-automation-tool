@@ -140,11 +140,7 @@ export async function GET(request: NextRequest) {
   const statusFilter = searchParams.get("status") || "all";
   const automationFilter = searchParams.get("automation") || "all";
 
-  // If in demo mode, serve realistic demo dataset cleanly
-  if (user.isDemo) {
-    return servePagesList(DEMO_FALLBACK_PAGES, DEMO_FALLBACK_ACCOUNTS, search, statusFilter, automationFilter);
-  }
-
+  // Real authenticated user: return real data from Supabase
   const supabase = await createClient();
 
   try {
@@ -204,8 +200,8 @@ export async function GET(request: NextRequest) {
       .order("created_at", { ascending: false });
 
     if (pagesErr || accErr) {
-      // If Supabase tables are not yet created or credentials placeholder, fallback gracefully
-      return servePagesList(DEMO_FALLBACK_PAGES, DEMO_FALLBACK_ACCOUNTS, search, statusFilter, automationFilter);
+      console.warn("[GET /api/facebook-pages] DB query error:", pagesErr?.message || accErr?.message);
+      return servePagesList([], accounts || [], search, statusFilter, automationFilter);
     }
 
     const accountsMap = new Map((accounts || []).map((acc) => [acc.id, acc.display_name || acc.name]));

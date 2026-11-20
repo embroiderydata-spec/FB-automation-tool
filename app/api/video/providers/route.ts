@@ -51,6 +51,32 @@ export async function POST(request: NextRequest) {
     } else if (providerName.includes("openai")) {
       const provider = getImageProvider("openai");
       result = await provider.testConnection();
+    } else if (providerName.includes("meta")) {
+      const appId = process.env.META_APP_ID;
+      const appSecret = process.env.META_APP_SECRET;
+      if (!appId || !appSecret) {
+        result = {
+          success: false,
+          message: "META_APP_ID and META_APP_SECRET not configured in .env.local",
+        };
+      } else {
+        try {
+          const testRes = await fetch(
+            `https://graph.facebook.com/oauth/access_token?client_id=${appId}&client_secret=${appSecret}&grant_type=client_credentials`
+          );
+          const data = await testRes.json();
+          if (data.access_token) {
+            result = { success: true, message: "Meta Graph API v21.0 Handshake Verified" };
+          } else {
+            result = {
+              success: false,
+              message: data.error?.message || "Invalid Meta App Credentials",
+            };
+          }
+        } catch (mErr: any) {
+          result = { success: false, message: mErr.message || "Meta API connection failed" };
+        }
+      }
     }
 
     return NextResponse.json(result);

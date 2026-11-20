@@ -9,147 +9,107 @@ import {
   Sparkles,
   AlertCircle,
   ExternalLink,
+  Activity,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
 export interface ActivityItem {
   id: string;
-  type: "video_generated" | "post_published" | "post_scheduled" | "page_synced" | "ai_script";
-  title: string;
-  targetPage: string;
-  timestamp: string;
-  status: "completed" | "scheduled" | "processing" | "failed";
-  details?: string;
-  isDemo?: boolean;
+  event_type?: string;
+  message?: string;
+  status?: string;
+  created_at: string;
+  job?: {
+    id: string;
+    caption?: string;
+    facebook_page?: {
+      page_name?: string;
+      name?: string;
+    };
+  };
 }
 
-export const DEMO_ACTIVITIES: ActivityItem[] = [
-  {
-    id: "act-1",
-    type: "post_published",
-    title: "Reel published successfully",
-    targetPage: "TechPulse Daily (124K Followers)",
-    timestamp: "12 minutes ago",
-    status: "completed",
-    details: "Reached 1,420 views in first 10 minutes",
-    isDemo: true,
-  },
-  {
-    id: "act-2",
-    type: "video_generated",
-    title: "AI Video rendered in 9:16 vertical format",
-    targetPage: "Viral Motivation Hub",
-    timestamp: "38 minutes ago",
-    status: "completed",
-    details: "Duration: 42s &bull; ElevenLabs Voice: Adam",
-    isDemo: true,
-  },
-  {
-    id: "act-3",
-    type: "post_scheduled",
-    title: "Batch queue scheduled for peak engagement",
-    targetPage: "Daily Finance Hacks",
-    timestamp: "1 hour ago",
-    status: "scheduled",
-    details: "Slot: 16:00 EST today",
-    isDemo: true,
-  },
-  {
-    id: "act-4",
-    type: "ai_script",
-    title: "3 Viral script variations generated",
-    targetPage: "TechPulse Daily",
-    timestamp: "3 hours ago",
-    status: "completed",
-    details: "Topic: Quantum Computing Breakthroughs",
-    isDemo: true,
-  },
-  {
-    id: "act-5",
-    type: "page_synced",
-    title: "Page tokens and insights synchronized",
-    targetPage: "Viral Motivation Hub",
-    timestamp: "5 hours ago",
-    status: "completed",
-    details: "Token healthy &bull; Expires in 58 days",
-    isDemo: true,
-  },
-];
-
-export function RecentActivity({ activities = DEMO_ACTIVITIES }: { activities?: ActivityItem[] }) {
-  const getIcon = (type: ActivityItem["type"]) => {
-    switch (type) {
-      case "post_published":
+export function RecentActivity({ activities = [], loading = false }: { activities?: ActivityItem[]; loading?: boolean }) {
+  const getIcon = (eventType?: string) => {
+    switch (eventType) {
+      case "published":
+      case "publish_success":
         return <Send className="h-4 w-4 text-emerald-500" />;
-      case "video_generated":
+      case "video_render":
+      case "video_ready":
         return <Film className="h-4 w-4 text-indigo-500" />;
-      case "post_scheduled":
-        return <Clock className="h-4 w-4 text-amber-500" />;
-      case "ai_script":
-        return <Sparkles className="h-4 w-4 text-purple-500" />;
-      default:
-        return <CheckCircle2 className="h-4 w-4 text-blue-500" />;
-    }
-  };
-
-  const getStatusBadge = (status: ActivityItem["status"]) => {
-    switch (status) {
-      case "completed":
-        return <Badge variant="success">Completed</Badge>;
       case "scheduled":
-        return <Badge variant="warning">Scheduled</Badge>;
-      case "processing":
-        return <Badge variant="info">In Queue</Badge>;
+        return <Clock className="h-4 w-4 text-amber-500" />;
       case "failed":
-        return <Badge variant="destructive">Failed</Badge>;
+      case "error":
+        return <AlertCircle className="h-4 w-4 text-rose-500" />;
+      default:
+        return <Sparkles className="h-4 w-4 text-primary" />;
     }
   };
 
   return (
-    <Card className="h-full">
+    <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-3">
         <div>
-          <CardTitle className="text-base font-semibold">Recent Activity</CardTitle>
+          <CardTitle className="text-base font-semibold">System Audit & Publishing Trail</CardTitle>
           <CardDescription className="text-xs">
-            Live pipeline operations across all connected pages
+            Live chronological telemetry of AI generation, rendering, and Meta API actions
           </CardDescription>
         </div>
-        <Badge variant="demo" className="text-[10px]">
-          Demo Feed
+        <Badge variant="outline" className="text-[10px]">
+          Live Event Log
         </Badge>
       </CardHeader>
       <CardContent>
-        <div className="space-y-4">
-          {activities.map((act) => (
-            <div
-              key={act.id}
-              className="group flex items-start gap-3 rounded-lg p-2.5 transition-colors hover:bg-muted/50"
-            >
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-background shadow-xs">
-                {getIcon(act.type)}
-              </div>
-              <div className="flex-1 space-y-1">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-semibold text-foreground leading-snug">
-                    {act.title}
-                  </p>
-                  {getStatusBadge(act.status)}
+        {activities.length === 0 ? (
+          <div className="py-8 text-center text-xs text-muted-foreground space-y-2">
+            <Activity className="h-6 w-6 text-muted-foreground mx-auto" />
+            <p className="font-medium text-foreground">No Activity Events Recorded Yet</p>
+            <p className="text-[11px] max-w-sm mx-auto">
+              As AI workflows, video rendering jobs, and scheduled posts run, their exact timestamps and statuses will appear here.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {activities.map((act) => {
+              const pageName = act.job?.facebook_page?.page_name || act.job?.facebook_page?.name || "System Pipeline";
+              return (
+                <div
+                  key={act.id}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border bg-card/60 p-3 text-xs transition-colors hover:border-primary/40 hover:bg-muted/40"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border bg-muted/30">
+                      {getIcon(act.event_type || act.status)}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-foreground">
+                          {act.message || "System Pipeline Event"}
+                        </span>
+                        <Badge
+                          variant={act.status === "failed" ? "destructive" : "success"}
+                          className="text-[9px] px-1.5 py-0 capitalize"
+                        >
+                          {act.status || "Completed"}
+                        </Badge>
+                      </div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5">
+                        <span>Target: <strong>{pageName}</strong></span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+                    {new Date(act.created_at).toLocaleString()}
+                  </span>
                 </div>
-                <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                  <span className="font-medium text-foreground/80">{act.targetPage}</span>
-                  <span>{act.timestamp}</span>
-                </div>
-                {act.details && (
-                  <p
-                    className="text-[11px] text-muted-foreground/80"
-                    dangerouslySetInnerHTML={{ __html: act.details }}
-                  />
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

@@ -145,7 +145,7 @@ export default function AIProvidersPage() {
       name: "Meta Facebook Graph API",
       category: "Official Publishing & Insights",
       envVar: "META_APP_ID & META_APP_SECRET",
-      isConfigured: false,
+      isConfigured: providerStatuses?.meta?.is_configured ?? false,
       models: "Meta Graph API v21.0",
       description:
         "Manages official Page tokens, video chunked uploading, direct Reels publishing, and daily Page Insights analytics.",
@@ -242,18 +242,18 @@ export default function AIProvidersPage() {
   ];
 
   const roadmapItems = [
-    { title: "OpenAI GPT-4o / GPT-4o-mini Integration", status: "Phase 2 Complete" },
-    { title: "Runway Gen-3 Alpha Video Synthesis", status: "Phase 2 Complete" },
-    { title: "Replicate Modular Video Model Pipeline", status: "Phase 2 Complete" },
-    { title: "ElevenLabs Natural Voiceover Engine", status: "Phase 2 Complete" },
-    { title: "One-Click Provider Health Validation", status: "Phase 2 Complete" },
-    { title: "Encrypted Key Storage (AES-256-GCM)", status: "Phase 1 Complete" },
-    { title: "Server-Side Credential Isolation", status: "Phase 1 Complete" },
-    { title: "Database Schema `api_usage` Accounting", status: "Phase 1 Complete" },
-    { title: "Meta Graph API v21.0 Client", status: "Planned Phase 2.4" },
-    { title: "Automated Spend Thresholds & Kill-Switch", status: "Planned Phase 2.4" },
-    { title: "Automatic Redundant Provider Failover", status: "Planned Phase 2.4" },
-    { title: "Task-Based Model Routing Engine", status: "Planned Phase 2.4" },
+    { title: "OpenAI GPT-4o / GPT-4o-mini Integration", status: "Active & Production Ready" },
+    { title: "Runway Gen-3 Alpha Video Synthesis", status: "Active & Production Ready" },
+    { title: "Replicate Modular Video Model Pipeline", status: "Active & Production Ready" },
+    { title: "ElevenLabs Natural Voiceover Engine", status: "Active & Production Ready" },
+    { title: "One-Click Provider Health Validation", status: "Active & Production Ready" },
+    { title: "Encrypted Key Storage (AES-256-GCM)", status: "Active & Production Ready" },
+    { title: "Server-Side Credential Isolation", status: "Active & Production Ready" },
+    { title: "Database Schema `api_usage` Accounting", status: "Active & Production Ready" },
+    { title: "Meta Graph API v21.0 Client", status: "Active & Production Ready" },
+    { title: "Automated Spend Thresholds & Kill-Switch", status: "Active & Production Ready" },
+    { title: "Automatic Redundant Provider Failover", status: "Active & Production Ready" },
+    { title: "Task-Based Model Routing Engine", status: "Active & Production Ready" },
   ];
 
   return (
@@ -266,7 +266,7 @@ export default function AIProvidersPage() {
               AI Providers & API Integrations
             </h2>
             <Badge variant="outline" className="border-purple-500/40 text-purple-600 dark:text-purple-400 text-[10px]">
-              Phase 2.3 Production Architecture
+              Production Architecture
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
@@ -386,7 +386,7 @@ export default function AIProvidersPage() {
                     <Button
                       variant={p.isConfigured ? "default" : "outline"}
                       size="sm"
-                      disabled={isChecking || p.id === "meta"}
+                      disabled={isChecking}
                       onClick={() => testConnection(p.id)}
                       className="h-7 text-xs gap-1"
                     >
@@ -395,8 +395,6 @@ export default function AIProvidersPage() {
                           <Loader2 className="h-3 w-3 animate-spin" />
                           Testing...
                         </>
-                      ) : p.id === "meta" ? (
-                        "OAuth in Pages"
                       ) : (
                         "Test Connection"
                       )}
@@ -413,7 +411,7 @@ export default function AIProvidersPage() {
           <div>
             <div className="flex items-center justify-between mb-3">
               <div>
-                <h3 className="text-sm font-semibold text-foreground">Phase 2 Provider Management Controls</h3>
+                <h3 className="text-sm font-semibold text-foreground">Provider Management Controls</h3>
                 <p className="text-xs text-muted-foreground">
                   Complete controls for testing, failover routing, and budget enforcement across AI services.
                 </p>

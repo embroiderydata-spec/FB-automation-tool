@@ -19,7 +19,7 @@ export function EmptyState({
   icon: Icon,
   title,
   description,
-  phase = "Phase 2 Feature",
+  phase,
   actionLabel,
   onAction,
   className,

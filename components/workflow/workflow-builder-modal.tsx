@@ -54,8 +54,8 @@ export function WorkflowBuilderModal({
   const [numScenes, setNumScenes] = useState(4);
 
   // Video & Voice
-  const [videoProvider, setVideoProvider] = useState<"replicate" | "runway" | "mock">("replicate");
-  const [voiceProvider, setVoiceProvider] = useState<"elevenlabs" | "openai" | "mock">("elevenlabs");
+  const [videoProvider, setVideoProvider] = useState<"replicate" | "runway">("replicate");
+  const [voiceProvider, setVoiceProvider] = useState<"elevenlabs" | "openai">("elevenlabs");
   const [subtitlePreset, setSubtitlePreset] = useState("bold_viral");
 
   // Branding
@@ -351,7 +351,6 @@ export function WorkflowBuilderModal({
                   >
                     <option value="replicate">Replicate (Luma / Ray 9:16)</option>
                     <option value="runway">Runway Gen-3 Alpha</option>
-                    <option value="mock">Simulated Dev Provider (Fast / Zero Cost)</option>
                   </select>
                 </div>
                 <div className="space-y-1.5">
@@ -363,7 +362,6 @@ export function WorkflowBuilderModal({
                   >
                     <option value="elevenlabs">ElevenLabs Neural Voice</option>
                     <option value="openai">OpenAI TTS-1 (Alloy/Onyx)</option>
-                    <option value="mock">Simulated Voice</option>
                   </select>
                 </div>
               </div>
@@ -458,7 +456,7 @@ export function WorkflowBuilderModal({
 
                 {pages.length === 0 ? (
                   <div className="p-4 border rounded-xl text-center text-xs text-muted-foreground">
-                    No connected Facebook Pages found. You can still test in simulated demo mode.
+                    No connected Facebook Pages found. Connect a Page in the Page Manager to publish automatically.
                   </div>
                 ) : (
                   <div className="max-h-40 overflow-y-auto space-y-1.5 border rounded-xl p-2 bg-muted/10">

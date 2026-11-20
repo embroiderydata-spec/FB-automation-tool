@@ -47,6 +47,8 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageNicheDialog } from "@/components/content/page-niche-dialog";
 import { SceneEditDialog, StoryboardSceneItem } from "@/components/content/scene-edit-dialog";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 export default function AIContentStudioPage() {
   const [activeTab, setActiveTab] = useState("overview");
@@ -1454,6 +1456,17 @@ export default function AIContentStudioPage() {
                     Approve Storyboard
                   </Button>
 
+                  <Link href={`/dashboard/videos?storyboard_id=${selectedStoryboard.id}`}>
+                    <Button
+                      size="sm"
+                      className="h-7 text-xs gap-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold"
+                    >
+                      <Film className="h-3 w-3" />
+                      Produce Video in Studio
+                      <ArrowRight className="h-3 w-3" />
+                    </Button>
+                  </Link>
+
                   <Button
                     variant="outline"
                     size="sm"
@@ -1484,7 +1497,7 @@ export default function AIContentStudioPage() {
                   icon={Clapperboard}
                   title="No Storyboard Scenes Active"
                   description="Generate a script in the Script Generator tab and click 'Convert to 9:16 Storyboard' to produce sequential AI video prompts."
-                  phase="Phase 2.2 Active"
+                  phase="Active Storyboard Engine"
                 />
               ) : (
                 <div className="space-y-3">

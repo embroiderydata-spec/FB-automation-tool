@@ -100,7 +100,7 @@ export default function LoginPage() {
                 {isSignUp ? "Create Admin Account" : "Platform Sign In"}
               </CardTitle>
               <Badge variant="outline" className="text-[10px]">
-                Phase 1
+                Production
               </Badge>
             </div>
             <CardDescription className="text-xs">
@@ -179,7 +179,7 @@ export default function LoginPage() {
               <Button
                 type="submit"
                 className="w-full text-xs font-semibold h-9"
-                disabled={loading || !isConfigured}
+                disabled={loading}
               >
                 {loading
                   ? "Authenticating..."

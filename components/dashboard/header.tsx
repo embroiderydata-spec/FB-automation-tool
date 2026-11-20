@@ -60,7 +60,7 @@ export function Header() {
             )}
           </div>
           <span className="hidden text-[11px] text-muted-foreground sm:inline-block">
-            Facebook Page Automation Platform &bull; Phase 1 Foundation
+            Facebook Page Automation Platform &bull; Production Enterprise
           </span>
         </div>
       </div>

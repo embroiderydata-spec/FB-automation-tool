@@ -64,5 +64,11 @@ export async function checkAllProvidersStatus() {
       capabilities: ["Vertical 1024x1792 Image Generation"],
       default_model: "dall-e-3",
     },
+    meta: {
+      name: "Meta Facebook Graph API",
+      is_configured: Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET),
+      capabilities: ["Reels Video Chunked Upload", "Page Insights", "Webhooks"],
+      default_model: "Graph API v21.0",
+    },
   };
 }
