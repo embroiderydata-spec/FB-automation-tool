@@ -93,9 +93,13 @@ export async function saveUserClip(userId: string, input: CreateClipInput): Prom
     crop_position: input.crop_position || "center",
     resolution: input.resolution || "1080p",
     subtitle_text: input.subtitle_text || "",
+    subtitle_style: input.subtitle_style || "viral_bold",
     exported_url: input.exported_url || input.source_video_url,
     file_size: input.file_size,
     status: "ready",
+    viral_score: input.viral_score,
+    category: input.category,
+    hook: input.hook,
     created_at: now,
     updated_at: now,
   };

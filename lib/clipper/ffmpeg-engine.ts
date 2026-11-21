@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
-import { AspectRatio, CropPosition, Resolution } from "./types";
+import { AspectRatio, CropPosition, Resolution, SubtitleStyle } from "./types";
 
 // Resolves path to bundled ffmpeg binary
 export function getFFmpegPath(): string {
@@ -80,7 +80,9 @@ export interface RenderClipOptions {
   cropPosition?: CropPosition;
   resolution?: Resolution;
   subtitleText?: string;
+  subtitleStyle?: SubtitleStyle;
   subtitlePosition?: "top" | "center" | "bottom";
+  hookText?: string;
 }
 
 export async function renderVideoClip(
@@ -129,16 +131,33 @@ export async function renderVideoClip(
 
   let filterChain = `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight}:(in_w-${targetWidth})/2:${cropY}`;
 
-  // Optional Hook Text Overlay
-  if (options.subtitleText && options.subtitleText.trim().length > 0) {
-    const cleanText = options.subtitleText.trim().replace(/['"\\]/g, "");
-    const subPos = options.subtitlePosition || "top";
-    let textY = "(h*0.15)";
-    if (subPos === "center") textY = "(h*0.5)-(text_h/2)";
-    else if (subPos === "bottom") textY = "(h*0.82)";
+  // Optional Hook Headline Overlay (Top)
+  if (options.hookText && options.hookText.trim().length > 0) {
+    const cleanHook = options.hookText.trim().replace(/['"\\]/g, "");
+    const hookFontSize = Math.round(targetWidth * 0.052);
+    filterChain += `,drawtext=text='${cleanHook}':fontcolor=yellow:fontsize=${hookFontSize}:box=1:boxcolor=black@0.7:boxborderw=10:x=(w-text_w)/2:y=(h*0.12)`;
+  }
 
-    const fontSize = Math.round(targetWidth * 0.05);
-    filterChain += `,drawtext=text='${cleanText}':fontcolor=yellow:fontsize=${fontSize}:box=1:boxcolor=black@0.65:boxborderw=10:x=(w-text_w)/2:y=${textY}`;
+  // Optional Subtitle / Caption Overlay
+  if (options.subtitleText && options.subtitleText.trim().length > 0 && options.subtitleStyle !== "none") {
+    const cleanText = options.subtitleText.trim().replace(/['"\\]/g, "");
+    const subPos = options.subtitlePosition || "bottom";
+    let textY = "(h*0.82)";
+    if (subPos === "center") textY = "(h*0.5)-(text_h/2)";
+    else if (subPos === "top") textY = "(h*0.22)";
+
+    const fontSize = Math.round(targetWidth * 0.048);
+    const style = options.subtitleStyle || "viral_bold";
+
+    if (style === "viral_bold") {
+      filterChain += `,drawtext=text='${cleanText}':fontcolor=yellow:fontsize=${fontSize}:borderw=4:bordercolor=black:box=1:boxcolor=black@0.7:boxborderw=8:x=(w-text_w)/2:y=${textY}`;
+    } else if (style === "clean_minimal") {
+      filterChain += `,drawtext=text='${cleanText}':fontcolor=white:fontsize=${fontSize}:box=1:boxcolor=black@0.75:boxborderw=10:x=(w-text_w)/2:y=${textY}`;
+    } else if (style === "karaoke") {
+      filterChain += `,drawtext=text='${cleanText}':fontcolor=cyan:fontsize=${fontSize}:borderw=4:bordercolor=black:box=1:boxcolor=black@0.6:boxborderw=8:x=(w-text_w)/2:y=${textY}`;
+    } else {
+      filterChain += `,drawtext=text='${cleanText}':fontcolor=yellow:fontsize=${fontSize}:box=1:boxcolor=black@0.65:boxborderw=10:x=(w-text_w)/2:y=${textY}`;
+    }
   }
 
   const args: string[] = [

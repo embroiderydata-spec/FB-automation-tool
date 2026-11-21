@@ -11,6 +11,12 @@ import {
   getFFmpegPath,
 } from "../lib/clipper/ffmpeg-engine";
 import {
+  parseVideoUrl,
+  formatTimestamp,
+  parseTimestamp,
+  analyzeVideoViralMoments,
+} from "../lib/clipper/ai-analyzer";
+import {
   getYouTubeAuthUrl,
   getYouTubeRedirectUri,
   saveYouTubeAccount,
@@ -242,6 +248,115 @@ describe("Video Clipper Studio & Multi-Platform Publishing", () => {
 
       const result = SchedulePostSchema.safeParse(scheduledPayload);
       assert.strictEqual(result.success, true);
+    });
+  });
+
+  describe("5. AI Viral Clip Detection & Analysis Engine", () => {
+    test("parseVideoUrl correctly parses YouTube and direct video links", () => {
+      const ytStandard = parseVideoUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+      assert.strictEqual(ytStandard.isValid, true);
+      assert.strictEqual(ytStandard.type, "youtube");
+      assert.strictEqual(ytStandard.videoId, "dQw4w9WgXcQ");
+
+      const ytShort = parseVideoUrl("https://youtu.be/dQw4w9WgXcQ");
+      assert.strictEqual(ytShort.isValid, true);
+      assert.strictEqual(ytShort.type, "youtube");
+      assert.strictEqual(ytShort.videoId, "dQw4w9WgXcQ");
+
+      const ytShorts = parseVideoUrl("https://www.youtube.com/shorts/dQw4w9WgXcQ");
+      assert.strictEqual(ytShorts.isValid, true);
+      assert.strictEqual(ytShorts.type, "youtube");
+      assert.strictEqual(ytShorts.videoId, "dQw4w9WgXcQ");
+
+      const directMp4 = parseVideoUrl("https://commondatastorage.googleapis.com/videos/sample.mp4");
+      assert.strictEqual(directMp4.isValid, true);
+      assert.strictEqual(directMp4.type, "direct_url");
+
+      const invalid = parseVideoUrl("not-a-valid-url");
+      assert.strictEqual(invalid.isValid, false);
+      assert.ok(invalid.error);
+    });
+
+    test("formatTimestamp and parseTimestamp accurately format and parse seconds", () => {
+      assert.strictEqual(formatTimestamp(36), "00:00:36");
+      assert.strictEqual(formatTimestamp(252), "00:04:12");
+      assert.strictEqual(formatTimestamp(3665), "01:01:05");
+
+      assert.strictEqual(parseTimestamp("00:00:36"), 36);
+      assert.strictEqual(parseTimestamp("00:04:12"), 252);
+      assert.strictEqual(parseTimestamp("01:01:05"), 3665);
+    });
+
+    test("analyzeVideoViralMoments derives valid non-fabricated candidate clips with complete viral metadata", async () => {
+      const sampleTranscript = [
+        { start: 0, duration: 4, text: "Hey guys, today I am going to show you something crazy." },
+        { start: 4, duration: 5, text: "Most people have never seen this trick before in their life!" },
+        { start: 9, duration: 6, text: "Watch closely right here as I combine these two elements." },
+        { start: 15, duration: 6, text: "Wait for it... look at that reaction!" },
+        { start: 21, duration: 7, text: "Why did that happen? Let me explain the exact science." },
+        { start: 28, duration: 8, text: "The temperature drop caused an instant pressure collapse." },
+        { start: 36, duration: 6, text: "And that is why you should always double check your seals." },
+        { start: 42, duration: 5, text: "Leave a comment if this surprised you, and see you next time!" },
+      ];
+
+      const analysis = await analyzeVideoViralMoments({
+        videoUrl: "https://www.youtube.com/watch?v=sample123",
+        sourceType: "youtube",
+        videoId: "sample123",
+        title: "The Ultimate Science Reaction Experiment",
+        author: "Lab Creator",
+        duration: 48,
+        transcript: sampleTranscript,
+      });
+
+      assert.ok(analysis);
+      assert.strictEqual(analysis.title, "The Ultimate Science Reaction Experiment");
+      assert.strictEqual(analysis.duration, 48);
+      assert.strictEqual(analysis.duration_formatted, "00:00:48");
+      assert.ok(Array.isArray(analysis.candidate_clips));
+      assert.ok(analysis.candidate_clips.length > 0);
+
+      // Verify each clip meets the viral criteria
+      for (const clip of analysis.candidate_clips) {
+        assert.ok(clip.clip_number >= 1);
+        assert.ok(clip.title.length > 0);
+        assert.ok(clip.start_time >= 0, "start_time must be >= 0");
+        assert.ok(clip.end_time <= 48, "end_time must be <= duration");
+        assert.ok(clip.end_time > clip.start_time, "end_time must be > start_time");
+        assert.ok(clip.duration >= 10 && clip.duration <= 60, "duration between 10s and 60s");
+        assert.ok(clip.viral_score >= 70 && clip.viral_score <= 99, "viral_score between 70 and 99");
+        assert.ok(["funny", "emotional", "educational", "surprising", "hook", "high_retention"].includes(clip.category));
+        assert.ok(clip.hook.length > 0);
+        assert.ok(clip.reason.length > 0);
+        assert.ok(clip.caption.length > 0);
+        assert.ok(Array.isArray(clip.hashtags) && clip.hashtags.length > 0);
+        assert.strictEqual(clip.title_options.length, 5, "must provide 5 viral title options");
+        assert.strictEqual(clip.hook_options.length, 3, "must provide 3 hook options");
+        assert.strictEqual(clip.caption_options.length, 3, "must provide 3 caption options");
+      }
+    });
+
+    test("renderVideoClip with subtitleStyle and hookText burns text onto vertical 9:16 video", async () => {
+      const outSub = path.join(testDir, "output_viral_subtitles.mp4");
+      const result = await renderVideoClip({
+        inputPath: testVideoPath,
+        outputPath: outSub,
+        startTime: 0,
+        duration: 2.0,
+        aspectRatio: "9:16",
+        cropPosition: "center",
+        subtitleStyle: "viral_bold",
+        subtitleText: "WAIT FOR IT 😱",
+        hookText: "THE CRAZIEST REACTION",
+      });
+
+      assert.ok(fs.existsSync(outSub));
+      assert.ok(result.sizeBytes > 0);
+
+      const probe = probeVideoFile(outSub);
+      assert.strictEqual(probe.width, 1080);
+      assert.strictEqual(probe.height, 1920);
+      assert.strictEqual(probe.resolution, "1080x1920");
     });
   });
 });

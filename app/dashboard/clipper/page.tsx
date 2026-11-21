@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import {
+  Sparkles,
   Scissors,
   Film,
   Upload,
@@ -12,7 +13,6 @@ import {
   CheckCircle2,
   Download,
   Send,
-  Sparkles,
   Maximize2,
   Trash2,
   Plus,
@@ -23,6 +23,7 @@ import {
   Youtube,
   Layers,
   ChevronRight,
+  ChevronDown,
   Bookmark,
   Volume2,
   VolumeX,
@@ -31,6 +32,17 @@ import {
   X,
   Sliders,
   FolderOpen,
+  ArrowUpDown,
+  Zap,
+  Flame,
+  Laugh,
+  Heart,
+  BookOpen,
+  HelpCircle,
+  ExternalLink,
+  RefreshCw,
+  Copy,
+  SlidersHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,1327 +51,1257 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SendToQueueModal } from "@/components/clipper/send-to-queue-modal";
-import { AspectRatio, CropPosition, Resolution, VideoClipRecord, UploadedVideoInfo } from "@/lib/clipper/types";
+import {
+  AspectRatio,
+  CropPosition,
+  Resolution,
+  SubtitleStyle,
+  ViralCategory,
+  ViralCandidateClip,
+  VideoAnalysisResult,
+  VideoClipRecord,
+} from "@/lib/clipper/types";
+
+type SortOption =
+  | "viral_score"
+  | "hook"
+  | "funny"
+  | "emotional"
+  | "educational"
+  | "surprising"
+  | "chronological";
 
 export default function VideoClipperPage() {
-  const [activeTab, setActiveTab] = useState<"clipper" | "my_clips">("clipper");
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [activeTab, setActiveTab] = useState<"finder" | "my_clips">("finder");
+
+  // Step 1: Input URL State
+  const [videoUrl, setVideoUrl] = useState<string>("");
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [analysisStep, setAnalysisStep] = useState<string>("");
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+
+  // Analysis Result
+  const [analysis, setAnalysis] = useState<VideoAnalysisResult | null>(null);
+  const [candidateClips, setCandidateClips] = useState<ViralCandidateClip[]>([]);
+
+  // Sorting & Filtering
+  const [sortBy, setSortBy] = useState<SortOption>("viral_score");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+
+  // Local File Upload / Fallback
+  const [showUploadFallback, setShowUploadFallback] = useState<boolean>(false);
+  const [uploadedFile, setUploadedFile] = useState<{
+    name: string;
+    path: string;
+    url: string;
+    duration: number;
+    sizeFormatted: string;
+  } | null>(null);
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Uploaded Video State (starts null - no fake demo videos)
-  const [currentVideo, setCurrentVideo] = useState<UploadedVideoInfo | null>(null);
-  const [uploading, setUploading] = useState<boolean>(false);
-  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-
-  // Library Video Selector Modal
+  // Video Library Selector Modal
   const [libraryModalOpen, setLibraryModalOpen] = useState<boolean>(false);
   const [libraryVideos, setLibraryVideos] = useState<any[]>([]);
   const [loadingLibrary, setLoadingLibrary] = useState<boolean>(false);
 
-  // Playback State
-  const [currentTime, setCurrentTime] = useState<number>(0);
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [isPreviewingClip, setIsPreviewingClip] = useState<boolean>(false);
-
-  // In / Out Timestamp Trimming State (in seconds)
-  const [startTime, setStartTime] = useState<number>(0);
-  const [endTime, setEndTime] = useState<number>(0);
-  const clipDuration = Math.max(0, Number((endTime - startTime).toFixed(2)));
-
-  // Clip Formatting Configuration
-  const [clipTitle, setClipTitle] = useState<string>("");
-  const [caption, setCaption] = useState<string>("#reels #shorts #viral");
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("9:16");
-  const [cropPosition, setCropPosition] = useState<CropPosition>("center");
-  const [resolution, setResolution] = useState<Resolution>("1080p");
-  const [subtitleText, setSubtitleText] = useState<string>("");
-  const [subtitlePosition, setSubtitlePosition] = useState<"top" | "center" | "bottom">("top");
-
-  // Multi-Clip Batch Queue
-  const [clipBatch, setClipBatch] = useState<Array<{
-    id: string;
-    title: string;
-    startTime: number;
-    endTime: number;
-    duration: number;
-    aspectRatio: AspectRatio;
-    cropPosition: CropPosition;
-    subtitleText: string;
-    caption: string;
-    status: "queued" | "processing" | "completed" | "failed";
-    renderedUrl?: string;
-    error?: string;
-  }>>([]);
-
-  // Rendering Job State
-  const [renderStatus, setRenderStatus] = useState<"idle" | "queued" | "processing" | "uploading" | "completed" | "failed">("idle");
-  const [renderError, setRenderError] = useState<string | null>(null);
-  const [renderNotice, setRenderNotice] = useState<string | null>(null);
-  const [lastRenderedClip, setLastRenderedClip] = useState<{
-    id: string;
-    title: string;
-    url: string;
-    duration: number;
-    sizeBytes?: number;
+  // Batch Generation State
+  const [isGeneratingBatch, setIsGeneratingBatch] = useState<boolean>(false);
+  const [generationProgress, setGenerationProgress] = useState<{
+    current: number;
+    total: number;
+    statusText: string;
   } | null>(null);
+  const [batchNotice, setBatchNotice] = useState<string | null>(null);
 
-  // Saved Clips Library State
-  const [savedClips, setSavedClips] = useState<VideoClipRecord[]>([]);
-  const [loadingSavedClips, setLoadingSavedClips] = useState<boolean>(false);
+  // Previewing a specific candidate
+  const [previewingClip, setPreviewingClip] = useState<ViralCandidateClip | null>(null);
+  const [expandedClipOptions, setExpandedClipOptions] = useState<number | null>(null);
 
-  // Publishing Queue Modal State
+  // Automation Mode
+  const [automationMode, setAutomationMode] = useState<boolean>(false);
+  const [autoClipCount, setAutoClipCount] = useState<number>(3);
+  const [emergencyStopped, setEmergencyStopped] = useState<boolean>(false);
+
+  // My Clips State
+  const [myClips, setMyClips] = useState<VideoClipRecord[]>([]);
+  const [loadingClips, setLoadingClips] = useState<boolean>(false);
+
+  // Publishing Modal
   const [queueModalOpen, setQueueModalOpen] = useState<boolean>(false);
-  const [activeClipForQueue, setActiveClipForQueue] = useState<any>(null);
+  const [selectedClipForQueue, setSelectedClipForQueue] = useState<VideoClipRecord | null>(null);
 
-  // Duration Adjustment Notice
-  const [durationNotice, setDurationNotice] = useState<string | null>(null);
-
+  // Load user clips on mount
   useEffect(() => {
-    fetchSavedClips();
+    loadUserClips();
   }, []);
 
-  async function fetchSavedClips() {
-    setLoadingSavedClips(true);
+  async function loadUserClips() {
+    setLoadingClips(true);
     try {
       const res = await fetch("/api/clipper");
-      if (res.ok) {
-        const data = await res.json();
-        setSavedClips(data.clips || []);
+      const data = await res.json();
+      if (data.clips) {
+        setMyClips(data.clips);
       }
-    } catch {}
-    finally {
-      setLoadingSavedClips(false);
+    } catch (err) {
+      console.error("Failed to load clips:", err);
+    } finally {
+      setLoadingClips(false);
     }
   }
 
-  // Format seconds to HH:MM:SS.ms
-  function formatTimecode(seconds: number): string {
-    if (isNaN(seconds) || seconds < 0) return "00:00:00.00";
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-    const ms = Math.floor((seconds % 1) * 100);
-    const pad = (n: number) => n.toString().padStart(2, "0");
-    return `${pad(hrs)}:${pad(mins)}:${pad(secs)}.${pad(ms)}`;
-  }
-
-  // Parse HH:MM:SS or SS to seconds
-  function parseTimeToSeconds(val: string): number {
-    const parts = val.split(":").map(Number);
-    if (parts.length === 3) {
-      return parts[0] * 3600 + parts[1] * 60 + parts[2];
-    } else if (parts.length === 2) {
-      return parts[0] * 60 + parts[1];
+  // Analyze Video URL Handler
+  async function handleAnalyzeVideo(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    if (!videoUrl.trim()) {
+      setAnalysisError("Please paste a valid video link (e.g. YouTube or direct video URL).");
+      return;
     }
-    const num = parseFloat(val);
-    return isNaN(num) ? 0 : num;
+
+    setAnalysisError(null);
+    setIsAnalyzing(true);
+    setAnalysisStep("Validating video source and fetching metadata...");
+    setPreviewingClip(null);
+
+    try {
+      // Step simulation for transparency
+      setTimeout(() => setAnalysisStep("Extracting transcript and dialogue cues..."), 1200);
+      setTimeout(() => setAnalysisStep("AI analyzing hooks, emotional peaks & audience retention..."), 2600);
+      setTimeout(() => setAnalysisStep("Scoring viral potential and formulating viral shorts..."), 4200);
+
+      const res = await fetch("/api/clipper/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: videoUrl.trim(),
+          auto_clip: automationMode,
+          max_clips: autoClipCount,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to analyze video.");
+      }
+
+      setAnalysis(data.analysis);
+      setCandidateClips(data.analysis.candidate_clips || []);
+
+      // If automation mode was on, trigger batch generation automatically
+      if (automationMode && !emergencyStopped && data.analysis.candidate_clips?.length > 0) {
+        const topClips = data.analysis.candidate_clips.slice(0, autoClipCount);
+        handleGenerateBatch(topClips);
+      }
+    } catch (err: any) {
+      setAnalysisError(err.message || "Could not analyze this video URL.");
+    } finally {
+      setIsAnalyzing(false);
+      setAnalysisStep("");
+    }
   }
 
-  // Real Video Upload Handler
+  // Handle Local File Upload
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setUploading(true);
+    setIsUploading(true);
     setUploadError(null);
-    setUploadProgress(`Uploading ${file.name} to storage...`);
+
+    const formData = new FormData();
+    formData.append("file", file);
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-
       const res = await fetch("/api/clipper/upload", {
         method: "POST",
         body: formData,
       });
-
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.error || "Failed to upload video.");
+        throw new Error(data.error || "File upload failed.");
       }
 
-      const videoInfo: UploadedVideoInfo = data.video;
-      setCurrentVideo(videoInfo);
-      setClipTitle(`${videoInfo.filename.replace(/\.[^/.]+$/, "")} - Reel`);
-      setStartTime(0);
-      setEndTime(Math.min(30, videoInfo.duration || 30));
-      setUploadProgress(null);
+      setUploadedFile({
+        name: data.video.filename,
+        path: data.video.local_path,
+        url: data.video.url,
+        duration: data.video.duration,
+        sizeFormatted: data.video.size_formatted,
+      });
+
+      setVideoUrl(data.video.url);
+
+      // Automatically trigger analysis on uploaded file
+      setIsAnalyzing(true);
+      setAnalysisStep("Analyzing uploaded video file...");
+
+      const analyzeRes = await fetch("/api/clipper/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: data.video.url }),
+      });
+      const analyzeData = await analyzeRes.json();
+      if (analyzeData.success) {
+        setAnalysis(analyzeData.analysis);
+        setCandidateClips(analyzeData.analysis.candidate_clips || []);
+      }
     } catch (err: any) {
       setUploadError(err.message || "Failed to upload video.");
     } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      setIsUploading(false);
+      setIsAnalyzing(false);
+      setAnalysisStep("");
     }
   }
 
-  // Load Library Videos
-  async function openLibrarySelector() {
+  // Open Video Library Modal
+  async function openVideoLibrary() {
     setLibraryModalOpen(true);
     setLoadingLibrary(true);
     try {
-      const res = await fetch("/api/video/library?category=all");
-      if (res.ok) {
-        const data = await res.json();
-        setLibraryVideos(data.videos || []);
+      const res = await fetch("/api/video/library");
+      const data = await res.json();
+      if (data.videos) {
+        setLibraryVideos(data.videos);
       }
-    } catch {}
-    finally {
+    } catch (err) {
+      console.error("Failed to load library videos:", err);
+    } finally {
       setLoadingLibrary(false);
     }
   }
 
-  function selectLibraryVideo(v: any) {
-    const duration = v.duration_seconds || 30;
-    setCurrentVideo({
-      id: v.id,
-      filename: v.title || "Library Video",
-      url: v.video_url,
-      duration,
-      width: 1920,
-      height: 1080,
-      resolution: v.resolution || "1920x1080",
-      size_bytes: v.file_size_bytes || 0,
-      size_formatted: v.file_size_bytes ? `${(v.file_size_bytes / (1024 * 1024)).toFixed(1)} MB` : "Ready",
-    });
-    setClipTitle(`${v.title || "Video"} - Clip`);
-    setStartTime(0);
-    setEndTime(Math.min(30, duration));
+  function handleSelectLibraryVideo(v: any) {
+    setVideoUrl(v.video_url || v.storage_path);
     setLibraryModalOpen(false);
+    // Auto analyze
+    setTimeout(() => {
+      handleAnalyzeVideo();
+    }, 100);
   }
 
-  // Loaded Metadata from Video element
-  function handleLoadedMetadata() {
-    if (videoRef.current && currentVideo) {
-      const actualDur = Number(videoRef.current.duration.toFixed(2));
-      if (actualDur > 0 && (!currentVideo.duration || currentVideo.duration === 0)) {
-        setCurrentVideo((prev) => (prev ? { ...prev, duration: actualDur } : prev));
-        setEndTime(Math.min(30, actualDur));
-      }
+  // Toggle selection for a candidate clip
+  function toggleClipSelection(clipNumber: number) {
+    setCandidateClips((prev) =>
+      prev.map((c) =>
+        c.clip_number === clipNumber ? { ...c, selected: !c.selected } : c
+      )
+    );
+  }
+
+  // Select all / Deselect all
+  function selectAllClips(selectAll: boolean) {
+    setCandidateClips((prev) => prev.map((c) => ({ ...c, selected: selectAll })));
+  }
+
+  // Change title on candidate clip
+  function updateClipTitle(clipNumber: number, newTitle: string) {
+    setCandidateClips((prev) =>
+      prev.map((c) =>
+        c.clip_number === clipNumber ? { ...c, title: newTitle } : c
+      )
+    );
+  }
+
+  // Change aspect ratio or subtitle style per clip
+  function updateClipSettings(
+    clipNumber: number,
+    aspectRatio?: AspectRatio,
+    subtitleStyle?: SubtitleStyle
+  ) {
+    setCandidateClips((prev) =>
+      prev.map((c) => {
+        if (c.clip_number === clipNumber) {
+          return {
+            ...c,
+            aspect_ratio: aspectRatio ?? c.aspect_ratio,
+            subtitle_style: subtitleStyle ?? c.subtitle_style,
+          };
+        }
+        return c;
+      })
+    );
+  }
+
+  // Batch Generation Execution
+  async function handleGenerateBatch(clipsToGenerate?: ViralCandidateClip[]) {
+    const targetClips =
+      clipsToGenerate || candidateClips.filter((c) => c.selected);
+
+    if (targetClips.length === 0) {
+      alert("Please select at least one candidate clip to generate.");
+      return;
     }
-  }
 
-  // Transport Controls
-  function togglePlay() {
-    if (!videoRef.current) return;
-    if (isPlaying) {
-      videoRef.current.pause();
-      setIsPlaying(false);
-    } else {
-      videoRef.current.play();
-      setIsPlaying(true);
-    }
-  }
-
-  function seekTo(timeInSeconds: number) {
-    if (!videoRef.current || !currentVideo) return;
-    const clamped = Math.max(0, Math.min(timeInSeconds, currentVideo.duration));
-    videoRef.current.currentTime = clamped;
-    setCurrentTime(clamped);
-  }
-
-  // Set In-Point from current playback time
-  function setInPoint() {
-    if (!videoRef.current) return;
-    const pos = Number(videoRef.current.currentTime.toFixed(2));
-    setStartTime(pos);
-    if (pos >= endTime) {
-      const newEnd = currentVideo ? Math.min(currentVideo.duration, pos + 15) : pos + 15;
-      setEndTime(Number(newEnd.toFixed(2)));
-    }
-  }
-
-  // Set Out-Point from current playback time
-  function setOutPoint() {
-    if (!videoRef.current) return;
-    const pos = Number(videoRef.current.currentTime.toFixed(2));
-    if (pos <= startTime) {
-      setStartTime(Math.max(0, Number((pos - 15).toFixed(2))));
-    }
-    setEndTime(pos);
-  }
-
-  // Quick Duration Button (+15s, +30s, +60s, +90s)
-  function handleQuickDuration(seconds: number) {
-    if (!currentVideo) return;
-    setDurationNotice(null);
-    const targetEnd = startTime + seconds;
-
-    if (targetEnd > currentVideo.duration) {
-      const available = Number((currentVideo.duration - startTime).toFixed(1));
-      setEndTime(currentVideo.duration);
-      setDurationNotice(`Adjusted to end of video (${available}s available from start)`);
-      setTimeout(() => setDurationNotice(null), 3500);
-    } else {
-      setEndTime(Number(targetEnd.toFixed(2)));
-    }
-  }
-
-  // Preview Clip section
-  function handlePreviewClip() {
-    const video = videoRef.current;
-    if (!video) return;
-
-    setIsPreviewingClip(true);
-    video.currentTime = startTime;
-    video.play();
-    setIsPlaying(true);
-
-    const interval = setInterval(() => {
-      if (!video) {
-        clearInterval(interval);
-        setIsPreviewingClip(false);
-        return;
-      }
-      if (video.currentTime >= endTime || video.paused) {
-        video.pause();
-        setIsPlaying(false);
-        setIsPreviewingClip(false);
-        clearInterval(interval);
-      }
-    }, 50);
-  }
-
-  // Add Clip to Batch Queue
-  function handleAddToBatch() {
-    if (!currentVideo) return;
-    const newBatchItem = {
-      id: `batch_${Date.now()}`,
-      title: clipTitle || `Clip ${clipBatch.length + 1}`,
-      startTime,
-      endTime,
-      duration: clipDuration,
-      aspectRatio,
-      cropPosition,
-      subtitleText,
-      caption,
-      status: "queued" as const,
-    };
-    setClipBatch((prev) => [...prev, newBatchItem]);
-    setRenderNotice(`Added "${newBatchItem.title}" (${clipDuration}s) to batch!`);
-    setTimeout(() => setRenderNotice(null), 3000);
-  }
-
-  // Render Single Clip with Backend FFmpeg Engine
-  async function handleRenderSingleClip() {
-    if (!currentVideo) return;
-
-    setRenderStatus("queued");
-    setRenderError(null);
-    setRenderNotice("Job queued. Initializing FFmpeg render engine...");
+    setIsGeneratingBatch(true);
+    setBatchNotice(null);
+    setGenerationProgress({
+      current: 0,
+      total: targetClips.length,
+      statusText: `Preparing to process ${targetClips.length} viral clips with FFmpeg...`,
+    });
 
     try {
-      setRenderStatus("processing");
-      setRenderNotice(`Trimming ${clipDuration}s & applying ${aspectRatio} (${cropPosition} crop)...`);
-
-      const payload = {
-        source_local_path: currentVideo.local_path,
-        source_video_url: currentVideo.url,
-        source_video_name: currentVideo.filename,
-        clip_title: clipTitle || "Viral 9:16 Reel",
-        start_time: startTime,
-        end_time: endTime,
-        aspect_ratio: aspectRatio,
-        crop_position: cropPosition,
-        resolution,
-        subtitle_text: subtitleText,
-        subtitle_position: subtitlePosition,
-        caption,
-      };
-
-      const res = await fetch("/api/clipper/render", {
+      const res = await fetch("/api/clipper/generate-batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          source_video_url: analysis?.video_url || videoUrl,
+          source_local_path: uploadedFile?.path,
+          source_video_name: analysis?.title || "Source Video",
+          clips: targetClips.map((c) => ({
+            clip_number: c.clip_number,
+            title: c.title,
+            start_time: c.start_time,
+            end_time: c.end_time,
+            duration: c.duration,
+            aspect_ratio: c.aspect_ratio || "9:16",
+            subtitle_style: c.subtitle_style || "viral_bold",
+            subtitle_text: c.hook || c.title,
+            hook_text: c.hook,
+            caption: c.caption,
+            viral_score: c.viral_score,
+            category: c.category,
+          })),
+        }),
       });
 
       const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "FFmpeg video rendering failed.");
+      if (!res.ok) {
+        if (data.requires_upload) {
+          setShowUploadFallback(true);
+        }
+        throw new Error(data.error || "Batch generation failed.");
       }
 
-      setRenderStatus("completed");
-      setRenderNotice("Render Completed! Video encoded and uploaded to Supabase Storage.");
-      setLastRenderedClip({
-        id: data.clip.id,
-        title: data.clip.clip_title,
-        url: data.clip.exported_url,
-        duration: data.clip.duration,
-        sizeBytes: data.clip.file_size,
-      });
-
-      fetchSavedClips();
-    } catch (err: any) {
-      setRenderStatus("failed");
-      setRenderError(err.message || "Video rendering failed.");
-    }
-  }
-
-  // Render All Clips in Batch
-  async function handleRenderAllBatch() {
-    if (!currentVideo || clipBatch.length === 0) return;
-
-    for (let i = 0; i < clipBatch.length; i++) {
-      const item = clipBatch[i];
-      if (item.status === "completed") continue;
-
-      // Update status to processing
-      setClipBatch((prev) =>
-        prev.map((c) => (c.id === item.id ? { ...c, status: "processing" } : c))
+      setBatchNotice(
+        `Successfully generated ${data.success_count} / ${data.total_requested} clips! Added to Video Library and My Clips.`
       );
 
-      try {
-        const res = await fetch("/api/clipper/render", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            source_local_path: currentVideo.local_path,
-            source_video_url: currentVideo.url,
-            source_video_name: currentVideo.filename,
-            clip_title: item.title,
-            start_time: item.startTime,
-            end_time: item.endTime,
-            aspect_ratio: item.aspectRatio,
-            crop_position: item.cropPosition,
-            resolution,
-            subtitle_text: item.subtitleText,
-            caption: item.caption,
-          }),
-        });
-
-        const data = await res.json();
-        if (!res.ok || !data.success) throw new Error(data.error);
-
-        setClipBatch((prev) =>
-          prev.map((c) =>
-            c.id === item.id
-              ? { ...c, status: "completed", renderedUrl: data.clip.exported_url }
-              : c
-          )
-        );
-      } catch (err: any) {
-        setClipBatch((prev) =>
-          prev.map((c) =>
-            c.id === item.id ? { ...c, status: "failed", error: err.message } : c
-          )
-        );
-      }
+      // Refresh clips list
+      await loadUserClips();
+    } catch (err: any) {
+      setBatchNotice(`Generation notice: ${err.message}`);
+    } finally {
+      setIsGeneratingBatch(false);
+      setGenerationProgress(null);
     }
-
-    fetchSavedClips();
   }
 
-  // Trigger Download of Rendered Video
-  function downloadRenderedVideo(url: string, filename: string) {
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${filename.toLowerCase().replace(/[^a-z0-9]/g, "-")}.mp4`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  // Single Clip Generation
+  async function handleGenerateSingle(clip: ViralCandidateClip) {
+    handleGenerateBatch([clip]);
   }
+
+  // Delete clip from My Clips
+  async function handleDeleteClip(clipId: string) {
+    if (!confirm("Are you sure you want to delete this clip?")) return;
+    try {
+      const res = await fetch(`/api/clipper?id=${clipId}`, { method: "DELETE" });
+      if (res.ok) {
+        setMyClips((prev) => prev.filter((c) => c.id !== clipId));
+      }
+    } catch (err) {
+      console.error("Failed to delete clip:", err);
+    }
+  }
+
+  // Filter & Sort Candidate Clips
+  const filteredClips = candidateClips
+    .filter((clip) => {
+      if (categoryFilter === "all") return true;
+      return clip.category === categoryFilter;
+    })
+    .sort((a, b) => {
+      if (sortBy === "viral_score") return b.viral_score - a.viral_score;
+      if (sortBy === "hook") return a.title.localeCompare(b.title);
+      if (sortBy === "chronological") return a.start_time - b.start_time;
+      if (sortBy === "surprising") return (b.category === "surprising" ? 1 : 0) - (a.category === "surprising" ? 1 : 0);
+      if (sortBy === "funny") return (b.category === "funny" ? 1 : 0) - (a.category === "funny" ? 1 : 0);
+      if (sortBy === "emotional") return (b.category === "emotional" ? 1 : 0) - (a.category === "emotional" ? 1 : 0);
+      if (sortBy === "educational") return (b.category === "educational" ? 1 : 0) - (a.category === "educational" ? 1 : 0);
+      return 0;
+    });
+
+  const selectedCount = candidateClips.filter((c) => c.selected).length;
 
   return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b pb-5">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl flex items-center gap-2">
-              <Scissors className="h-6 w-6 text-primary" />
-              Video Clipping Studio
-            </h2>
-            <Badge variant="outline" className="text-[10px] border-primary/40 text-primary font-semibold">
-              FFmpeg H.264 & AAC Pipeline
+            <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+              <Sparkles className="h-6 w-6 text-amber-500" />
+              AI Viral Clip Finder & Shorts Generator
+            </h1>
+            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300">
+              AI Powered
             </Badge>
           </div>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Upload your footage, scrub with precision playhead markers, crop to 9:16 vertical, and render real high-converting MP4 Reels with FFmpeg.
+          <p className="text-sm text-muted-foreground mt-1">
+            Paste any video link to automatically find the highest-retention moments, add viral subtitles, reframe into 9:16 vertical Shorts, and publish in 1 click.
           </p>
         </div>
 
-        {/* Tab Toggle */}
-        <div className="flex items-center gap-2">
-          <Tabs value={activeTab} onValueChange={(v: any) => setActiveTab(v)}>
-            <TabsList className="h-8 p-1">
-              <TabsTrigger value="clipper" className="text-xs py-1">
-                Studio
-              </TabsTrigger>
-              <TabsTrigger value="my_clips" className="text-xs py-1">
-                My Clips ({savedClips.length})
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+        {/* Tab & Automation Controls */}
+        <div className="flex items-center gap-3">
+          {/* Automation Mode Toggle */}
+          <div className="flex items-center gap-2 bg-muted/60 px-3 py-1.5 rounded-lg border text-xs">
+            <Zap className={`h-4 w-4 ${automationMode ? "text-amber-500 fill-amber-500" : "text-muted-foreground"}`} />
+            <span className="font-medium">Auto-Clip Mode</span>
+            <input
+              type="checkbox"
+              checked={automationMode}
+              onChange={(e) => setAutomationMode(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+            />
+          </div>
+
+          <div className="flex bg-muted p-1 rounded-lg">
+            <button
+              onClick={() => setActiveTab("finder")}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                activeTab === "finder"
+                  ? "bg-background text-foreground shadow-sm font-semibold"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              AI Clip Finder
+            </button>
+            <button
+              onClick={() => setActiveTab("my_clips")}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${
+                activeTab === "my_clips"
+                  ? "bg-background text-foreground shadow-sm font-semibold"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <span>My Clips</span>
+              {myClips.length > 0 && (
+                <Badge variant="secondary" className="px-1.5 py-0 text-[10px] font-bold">
+                  {myClips.length}
+                </Badge>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
-      {activeTab === "clipper" ? (
-        !currentVideo ? (
-          /* ========================================================================= */
-          /* 1. CLEAN EMPTY STATE: No Fake Demos, Prominent Upload Button               */
-          /* ========================================================================= */
-          <Card className="border border-dashed border-border shadow-sm p-8 sm:p-12 text-center bg-card">
-            <div className="max-w-md mx-auto space-y-4">
-              <div className="h-16 w-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto shadow-inner">
-                <FileVideo className="h-8 w-8" />
-              </div>
-
-              <div className="space-y-1">
-                <h3 className="text-lg font-bold text-foreground">
-                  Upload a video to start clipping
-                </h3>
-                <p className="text-xs text-muted-foreground">
-                  Select a long-form video (MP4, MOV, or WebM) to scrub through the timeline, crop to 9:16 vertical, and extract viral Reels.
-                </p>
-              </div>
-
-              {uploadError && (
-                <div className="flex items-center justify-center gap-2 p-3 rounded-lg border border-destructive/20 bg-destructive/10 text-destructive text-xs">
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  <span>{uploadError}</span>
+      {activeTab === "finder" ? (
+        <div className="space-y-6">
+          {/* STEP 1: HERO URL INPUT */}
+          <Card className="border-2 border-primary/20 shadow-md overflow-hidden bg-gradient-to-b from-card to-muted/20">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Film className="h-5 w-5 text-primary" />
+                  Step 1: Paste Video Link
+                </span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  Supports YouTube, direct MP4, MOV, WebM, & Cloud Storage
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <form onSubmit={handleAnalyzeVideo} className="flex flex-col sm:flex-row gap-2">
+                <div className="relative flex-1">
+                  <Input
+                    type="text"
+                    placeholder="Paste your video link here (e.g. https://www.youtube.com/watch?v=... or direct MP4)..."
+                    value={videoUrl}
+                    onChange={(e) => setVideoUrl(e.target.value)}
+                    className="h-12 pl-4 pr-10 text-sm shadow-inner rounded-lg"
+                    disabled={isAnalyzing}
+                  />
+                  {videoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setVideoUrl("")}
+                      className="absolute right-3 top-3.5 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  )}
                 </div>
-              )}
-
-              {uploadProgress && (
-                <div className="flex items-center justify-center gap-2 p-3 rounded-lg border border-primary/20 bg-primary/10 text-primary text-xs">
-                  <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                  <span>{uploadProgress}</span>
-                </div>
-              )}
-
-              <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="video/mp4,video/quicktime,video/webm"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
 
                 <Button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading}
-                  size="lg"
-                  className="w-full sm:w-auto text-xs font-semibold gap-2 bg-primary text-primary-foreground shadow-md"
+                  type="submit"
+                  disabled={isAnalyzing || !videoUrl.trim()}
+                  className="h-12 px-6 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold flex items-center gap-2 shadow-sm rounded-lg"
                 >
-                  {uploading ? (
+                  {isAnalyzing ? (
                     <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Uploading & Probing Video...
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      Analyzing Video...
                     </>
                   ) : (
                     <>
-                      <Upload className="h-4 w-4" />
-                      Upload Video File (MP4 / MOV)
+                      <Sparkles className="h-5 w-5" />
+                      Analyze Video & Find Viral Clips
                     </>
                   )}
                 </Button>
+              </form>
 
-                <Button
-                  variant="outline"
-                  onClick={openLibrarySelector}
-                  size="lg"
-                  className="w-full sm:w-auto text-xs font-semibold gap-2"
-                >
-                  <FolderOpen className="h-4 w-4 text-primary" />
-                  Select from Video Library
-                </Button>
-              </div>
-
-              <p className="text-[11px] text-muted-foreground pt-2">
-                Supported formats: MP4, MOV, WebM • High-definition 1080p / 4K supported
-              </p>
-            </div>
-          </Card>
-        ) : (
-          /* ========================================================================= */
-          /* 2. ACTIVE CLIPPING STUDIO: Real Video, Timeline & FFmpeg Processing        */
-          /* ========================================================================= */
-          <div className="space-y-6">
-            {/* Source Video Telemetry Banner */}
-            <div className="p-3 rounded-xl border bg-card flex flex-wrap items-center justify-between gap-3 text-xs shadow-xs">
-              <div className="flex items-center gap-2.5 truncate">
-                <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                  <Film className="h-4 w-4" />
+              {/* Quick Source Actions & Local Fallback Toggle */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs text-muted-foreground">
+                <div className="flex items-center gap-3">
+                  <span className="font-medium text-foreground">Quick Options:</span>
+                  <button
+                    type="button"
+                    onClick={openVideoLibrary}
+                    className="text-primary hover:underline flex items-center gap-1 font-medium"
+                  >
+                    <FolderOpen className="h-3.5 w-3.5" />
+                    Select from Video Library
+                  </button>
+                  <span>•</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowUploadFallback(!showUploadFallback)}
+                    className="text-primary hover:underline flex items-center gap-1 font-medium"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    {showUploadFallback ? "Hide File Upload" : "Upload Video File Directly"}
+                  </button>
                 </div>
-                <div className="truncate">
-                  <span className="font-semibold block truncate text-foreground">{currentVideo.filename}</span>
-                  <span className="text-[11px] text-muted-foreground font-mono">
-                    {formatTimecode(currentVideo.duration)} duration • {currentVideo.resolution} • {currentVideo.size_formatted}
-                  </span>
-                </div>
+
+                {automationMode && (
+                  <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 font-medium">
+                    <Zap className="h-3.5 w-3.5 fill-current" />
+                    Auto-Clip will generate top {autoClipCount} moments upon analysis
+                  </div>
+                )}
               </div>
 
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setCurrentVideo(null);
-                    setLastRenderedClip(null);
-                  }}
-                  className="h-7 text-[11px] gap-1"
-                >
-                  <RotateCcw className="h-3 w-3" /> Change Video
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* LEFT 7 COLS: Video Player & Timeline Controls */}
-              <div className="lg:col-span-7 space-y-4">
-                <Card className="overflow-hidden border shadow-sm">
-                  {/* Video Viewport Container */}
-                  <div className="relative bg-black flex items-center justify-center min-h-[380px] max-h-[520px] overflow-hidden group">
-                    <video
-                      ref={videoRef}
-                      src={currentVideo.url}
-                      onLoadedMetadata={handleLoadedMetadata}
-                      onTimeUpdate={() => {
-                        if (videoRef.current) setCurrentTime(videoRef.current.currentTime);
-                      }}
-                      onEnded={() => setIsPlaying(false)}
-                      muted={isMuted}
-                      playsInline
-                      className="max-h-[520px] w-auto max-w-full object-contain"
-                    />
-
-                    {/* Visual Crop Framing Guide Overlay */}
-                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                      <div
-                        className={`border-2 border-dashed border-primary transition-all relative ${
-                          aspectRatio === "9:16"
-                            ? `h-full aspect-[9/16] shadow-[0_0_0_9999px_rgba(0,0,0,0.55)] ${
-                                cropPosition === "top"
-                                  ? "self-start"
-                                  : cropPosition === "bottom"
-                                  ? "self-end"
-                                  : "self-center"
-                              }`
-                            : aspectRatio === "1:1"
-                            ? "h-full aspect-square shadow-[0_0_0_9999px_rgba(0,0,0,0.55)]"
-                            : "w-full aspect-[16/9]"
-                        }`}
+              {/* Upload Dropzone Fallback (if user toggles or needed) */}
+              {showUploadFallback && (
+                <div className="mt-3 p-4 border-2 border-dashed rounded-lg bg-muted/40 text-center space-y-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="video/mp4,video/quicktime,video/webm"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                  <div className="flex flex-col items-center justify-center gap-1">
+                    <Upload className="h-8 w-8 text-muted-foreground animate-bounce" />
+                    <p className="text-sm font-semibold">
+                      Drag and drop your video file here, or{" "}
+                      <span
+                        onClick={() => fileInputRef.current?.click()}
+                        className="text-primary underline cursor-pointer hover:text-primary/80"
                       >
-                        {/* Live Headline Overlay Preview */}
-                        {subtitleText.trim() && (
-                          <div
-                            className={`absolute left-0 right-0 p-2 bg-black/80 text-center text-xs font-bold text-amber-300 tracking-wider shadow-md ${
-                              subtitlePosition === "top"
-                                ? "top-4"
-                                : subtitlePosition === "center"
-                                ? "top-1/2 -translate-y-1/2"
-                                : "bottom-4"
-                            }`}
-                          >
-                            {subtitleText.toUpperCase()}
-                          </div>
-                        )}
-                      </div>
+                        browse files
+                      </span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      MP4, MOV, or WebM up to 500MB
+                    </p>
+                  </div>
+                  {isUploading && (
+                    <div className="flex items-center justify-center gap-2 text-xs text-primary font-medium">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Uploading and probing video telemetry...
                     </div>
+                  )}
+                  {uploadedFile && (
+                    <div className="flex items-center justify-center gap-2 text-xs text-emerald-600 font-medium">
+                      <CheckCircle2 className="h-4 w-4" />
+                      Loaded: {uploadedFile.name} ({uploadedFile.sizeFormatted})
+                    </div>
+                  )}
+                  {uploadError && (
+                    <p className="text-xs text-rose-500 font-medium">{uploadError}</p>
+                  )}
+                </div>
+              )}
 
-                    {/* Floating Play / Pause Overlay Button */}
+              {/* Error Alert */}
+              {analysisError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300 rounded-lg text-xs flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-semibold">Analysis Notice: </span>
+                    {analysisError}
                     <button
                       type="button"
-                      onClick={togglePlay}
-                      className="absolute inset-0 m-auto h-14 w-14 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm"
+                      onClick={() => setShowUploadFallback(true)}
+                      className="ml-2 underline font-medium hover:text-rose-900"
                     >
-                      {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6 ml-0.5" />}
+                      Try uploading the video file instead.
                     </button>
                   </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-                  {/* Timeline Scrubber & In/Out Point Controls */}
-                  <div className="p-4 space-y-3 bg-card border-t">
-                    {/* Timecode Indicators */}
-                    <div className="flex items-center justify-between text-xs font-mono">
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-muted-foreground block">Clip Start:</span>
-                        <span className="text-primary font-bold">{formatTimecode(startTime)}</span>
-                      </div>
-
-                      <div className="text-center space-y-0.5">
-                        <span className="text-[10px] text-muted-foreground block">Playhead:</span>
-                        <span className="font-bold text-foreground">{formatTimecode(currentTime)}</span>
-                      </div>
-
-                      <div className="text-right space-y-0.5">
-                        <span className="text-[10px] text-muted-foreground block">Clip End:</span>
-                        <span className="text-primary font-bold">{formatTimecode(endTime)}</span>
-                      </div>
-                    </div>
-
-                    {/* Playhead Range Slider */}
-                    <input
-                      type="range"
-                      min={0}
-                      max={currentVideo.duration || 100}
-                      step={0.05}
-                      value={currentTime}
-                      onChange={(e) => seekTo(parseFloat(e.target.value))}
-                      className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-                    />
-
-                    {/* Duration Notice Alert if Clamped */}
-                    {durationNotice && (
-                      <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-[11px] flex items-center gap-1.5">
-                        <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                        <span>{durationNotice}</span>
-                      </div>
-                    )}
-
-                    {/* Transport & Setting Buttons */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t">
-                      <div className="flex items-center gap-1.5">
-                        <Button variant="outline" size="sm" onClick={togglePlay} className="h-8 px-2.5 text-xs">
-                          {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => seekTo(currentTime - 5)}
-                          className="h-8 px-2 text-xs"
-                          title="Rewind 5s"
-                        >
-                          -5s
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => seekTo(currentTime + 5)}
-                          className="h-8 px-2 text-xs"
-                          title="Forward 5s"
-                        >
-                          +5s
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setIsMuted(!isMuted)}
-                          className="h-8 px-2 text-xs"
-                        >
-                          {isMuted ? <VolumeX className="h-3.5 w-3.5 text-destructive" /> : <Volume2 className="h-3.5 w-3.5" />}
-                        </Button>
-                      </div>
-
-                      {/* Precise In & Out Point Buttons */}
-                      <div className="flex items-center gap-1.5">
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={setInPoint}
-                          className="h-8 text-xs font-semibold gap-1"
-                        >
-                          [ Set Start ({formatTimecode(currentTime).slice(3, 8)})
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={setOutPoint}
-                          className="h-8 text-xs font-semibold gap-1"
-                        >
-                          Set End ({formatTimecode(currentTime).slice(3, 8)}) ]
-                        </Button>
-                        <Button
-                          variant="default"
-                          size="sm"
-                          disabled={isPreviewingClip}
-                          onClick={handlePreviewClip}
-                          className="h-8 text-xs font-semibold gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                          {isPreviewingClip ? "Playing..." : "Preview Clip"}
-                        </Button>
-                      </div>
-                    </div>
-
-                    {/* Quick Duration Preset Chips */}
-                    <div className="flex items-center justify-between gap-2 pt-2 border-t text-xs">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] text-muted-foreground font-medium">Quick Durations:</span>
-                        {[15, 30, 60, 90].map((sec) => (
-                          <Button
-                            key={sec}
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleQuickDuration(sec)}
-                            className="h-6 text-[10px] px-2"
-                          >
-                            +{sec}s
-                          </Button>
-                        ))}
-                      </div>
-
-                      <Badge variant="outline" className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400 font-bold border-emerald-500/30 bg-emerald-500/10">
-                        Duration: {clipDuration.toFixed(2)}s
-                      </Badge>
-                    </div>
-
-                    {/* Manual Timestamp Editors */}
-                    <div className="grid grid-cols-2 gap-3 pt-2 border-t">
-                      <div className="space-y-1">
-                        <Label className="text-[11px] text-muted-foreground">Start Time (Seconds)</Label>
-                        <Input
-                          type="number"
-                          step="0.1"
-                          min="0"
-                          max={currentVideo.duration}
-                          value={startTime}
-                          onChange={(e) => {
-                            const val = parseFloat(e.target.value) || 0;
-                            setStartTime(val);
-                            seekTo(val);
-                          }}
-                          className="h-8 text-xs font-mono"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-[11px] text-muted-foreground">End Time (Seconds)</Label>
-                        <Input
-                          type="number"
-                          step="0.1"
-                          min="0.1"
-                          max={currentVideo.duration}
-                          value={endTime}
-                          onChange={(e) => {
-                            const val = parseFloat(e.target.value) || 0;
-                            setEndTime(val);
-                          }}
-                          className="h-8 text-xs font-mono"
-                        />
-                      </div>
-                    </div>
+          {/* STEP 2: REAL-TIME ANALYSIS STEPPER */}
+          {isAnalyzing && (
+            <Card className="border border-amber-300 bg-amber-50/60 dark:bg-amber-950/20 shadow-sm animate-pulse">
+              <CardContent className="py-5 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Loader2 className="h-6 w-6 text-amber-600 animate-spin" />
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">
+                      AI Video Analysis in Progress...
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {analysisStep || "Scanning video for viral moments..."}
+                    </p>
                   </div>
-                </Card>
-              </div>
+                </div>
+                <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-300">
+                  Real AI Processing
+                </Badge>
+              </CardContent>
+            </Card>
+          )}
 
-              {/* RIGHT 5 COLS: Formatting, Cropping, FFmpeg Render & Batch */}
-              <div className="lg:col-span-5 space-y-4">
-                <Card className="border shadow-sm">
-                  <CardHeader className="p-4 border-b">
-                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                      <Sliders className="h-4 w-4 text-primary" />
-                      Reel Production Settings
-                    </CardTitle>
-                    <CardDescription className="text-xs">
-                      Configure 9:16 vertical crop position, viral headline, and export quality.
-                    </CardDescription>
-                  </CardHeader>
-
-                  <CardContent className="p-4 space-y-4">
-                    {/* Aspect Ratio Selector */}
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-semibold">Aspect Ratio Preset</Label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {[
-                          { id: "9:16", label: "9:16 Vertical", desc: "Reels / Shorts" },
-                          { id: "16:9", label: "16:9 Wide", desc: "Standard Video" },
-                          { id: "1:1", label: "1:1 Square", desc: "Feed Posts" },
-                        ].map((preset) => (
-                          <button
-                            key={preset.id}
-                            type="button"
-                            onClick={() => setAspectRatio(preset.id as AspectRatio)}
-                            className={`p-2 rounded-lg border text-center transition-all ${
-                              aspectRatio === preset.id
-                                ? "border-primary bg-primary/10 text-primary font-bold shadow-xs"
-                                : "border-border hover:bg-muted/50 text-muted-foreground"
-                            }`}
-                          >
-                            <span className="block text-xs font-semibold">{preset.label}</span>
-                            <span className="text-[9px] opacity-80">{preset.desc}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Vertical Crop Position & Resolution */}
-                    <div className="grid grid-cols-2 gap-3">
-                      {aspectRatio === "9:16" ? (
-                        <div className="space-y-1">
-                          <Label className="text-xs font-semibold">Vertical Crop Position</Label>
-                          <select
-                            value={cropPosition}
-                            onChange={(e) => setCropPosition(e.target.value as CropPosition)}
-                            className="w-full h-8 text-xs rounded-md border border-input bg-background px-2"
-                          >
-                            <option value="center">Center (Balanced)</option>
-                            <option value="top">Top (Face Focus)</option>
-                            <option value="bottom">Bottom (Object Focus)</option>
-                          </select>
-                        </div>
+          {/* STEP 3 & 4: VIRAL CANDIDATES DASHBOARD */}
+          {analysis && !isAnalyzing && (
+            <div className="space-y-6">
+              {/* Video Overview Header */}
+              <Card className="shadow-sm">
+                <CardContent className="p-5">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="flex items-start gap-4">
+                      {analysis.thumbnail_url ? (
+                        <img
+                          src={analysis.thumbnail_url}
+                          alt={analysis.title}
+                          className="w-28 h-20 object-cover rounded-lg shadow-sm border shrink-0"
+                        />
                       ) : (
-                        <div className="space-y-1">
-                          <Label className="text-xs font-semibold">Framing</Label>
-                          <div className="h-8 flex items-center px-2 text-xs text-muted-foreground border rounded-md bg-muted/20">
-                            Auto Center Fit
-                          </div>
+                        <div className="w-28 h-20 bg-muted rounded-lg flex items-center justify-center shrink-0">
+                          <Film className="h-8 w-8 text-muted-foreground" />
                         </div>
                       )}
-
-                      <div className="space-y-1">
-                        <Label className="text-xs font-semibold">Output Quality</Label>
-                        <select
-                          value={resolution}
-                          onChange={(e) => setResolution(e.target.value as Resolution)}
-                          className="w-full h-8 text-xs rounded-md border border-input bg-background px-2"
-                        >
-                          <option value="1080p">1080p (Full HD)</option>
-                          <option value="720p">720p (Fast Render)</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    {/* Viral Hook Headline Text Overlay */}
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-xs font-semibold">Hook Headline (Text Overlay)</Label>
-                        <select
-                          value={subtitlePosition}
-                          onChange={(e: any) => setSubtitlePosition(e.target.value)}
-                          className="h-6 text-[10px] rounded border bg-background px-1.5"
-                        >
-                          <option value="top">Top Banner</option>
-                          <option value="center">Center Banner</option>
-                          <option value="bottom">Bottom Banner</option>
-                        </select>
-                      </div>
-                      <Input
-                        value={subtitleText}
-                        onChange={(e) => setSubtitleText(e.target.value)}
-                        placeholder="E.g. WAIT FOR THE END 😱"
-                        className="h-8 text-xs font-medium"
-                      />
-                      <p className="text-[10px] text-muted-foreground">
-                        Burned directly into the video frame by FFmpeg to capture scrolling attention.
-                      </p>
-                    </div>
-
-                    {/* Title & Caption */}
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-semibold">Clip Title</Label>
-                      <Input
-                        value={clipTitle}
-                        onChange={(e) => setClipTitle(e.target.value)}
-                        placeholder="Clip Title"
-                        className="h-8 text-xs"
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-semibold">Post Caption & Hashtags</Label>
-                      <textarea
-                        value={caption}
-                        onChange={(e) => setCaption(e.target.value)}
-                        rows={2}
-                        placeholder="Caption for Facebook & YouTube publishing..."
-                        className="w-full rounded-md border border-input bg-background p-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
-                      />
-                    </div>
-
-                    {/* Feedback & Job State Alerts */}
-                    {renderError && (
-                      <div className="p-3 rounded-lg border border-destructive/20 bg-destructive/10 text-destructive text-xs space-y-1">
-                        <div className="flex items-center gap-1.5 font-semibold">
-                          <AlertCircle className="h-4 w-4 shrink-0" />
-                          <span>Rendering Error</span>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h2 className="text-lg font-bold line-clamp-1">{analysis.title}</h2>
+                          <Badge variant="secondary" className="text-xs">
+                            {analysis.source_type === "youtube" ? "YouTube" : "Direct Video"}
+                          </Badge>
+                          {analysis.transcript_available && (
+                            <Badge variant="outline" className="text-[11px] bg-emerald-50 text-emerald-700 border-emerald-300">
+                              Transcript Analyzed
+                            </Badge>
+                          )}
                         </div>
-                        <p className="text-[11px]">{renderError}</p>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={handleRenderSingleClip}
-                          className="h-6 text-[10px] mt-1 text-destructive"
-                        >
-                          <RotateCcw className="h-3 w-3 mr-1" /> Retry Render
-                        </Button>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Creator: <span className="font-medium text-foreground">{analysis.author || "Unknown"}</span> • Total Length: <span className="font-medium text-foreground">{analysis.duration_formatted}</span>
+                        </p>
+                        <p className="text-xs text-emerald-600 font-semibold mt-1">
+                          ✨ AI detected {candidateClips.length} high-potential moments ready for Shorts & Reels
+                        </p>
                       </div>
-                    )}
+                    </div>
 
-                    {renderNotice && (
-                      <div className="p-3 rounded-lg border border-primary/20 bg-primary/10 text-primary text-xs flex items-start gap-2">
-                        {renderStatus === "processing" ? (
-                          <Loader2 className="h-4 w-4 animate-spin shrink-0 mt-0.5" />
-                        ) : (
-                          <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
-                        )}
-                        <span>{renderNotice}</span>
-                      </div>
-                    )}
-
-                    {/* Primary Action Buttons */}
-                    <div className="space-y-2 pt-2 border-t">
+                    {/* Batch Generation Primary Button */}
+                    <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2">
                       <Button
-                        onClick={handleRenderSingleClip}
-                        disabled={renderStatus === "processing" || clipDuration <= 0}
-                        className="w-full h-9 text-xs font-semibold gap-2 bg-primary text-primary-foreground shadow"
+                        onClick={() => handleGenerateBatch()}
+                        disabled={isGeneratingBatch || selectedCount === 0}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-11 px-5 shadow-sm"
                       >
-                        {renderStatus === "processing" ? (
+                        {isGeneratingBatch ? (
                           <>
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Rendering {aspectRatio} Clip with FFmpeg...
+                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                            Rendering Selected...
                           </>
                         ) : (
                           <>
-                            <Scissors className="h-4 w-4" />
-                            Render Actual Video Clip ({clipDuration.toFixed(1)}s)
+                            <Zap className="h-4 w-4 fill-white mr-1.5" />
+                            Generate Selected Clips ({selectedCount})
                           </>
                         )}
                       </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
 
-                      <div className="grid grid-cols-2 gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={handleAddToBatch}
-                          className="h-8 text-xs gap-1"
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                          Add to Batch ({clipBatch.length})
-                        </Button>
-
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setActiveClipForQueue({
-                              id: lastRenderedClip?.id || `clip_${Date.now()}`,
-                              title: clipTitle,
-                              caption,
-                              videoUrl: lastRenderedClip?.url || currentVideo.url,
-                              aspectRatio,
-                              duration: clipDuration,
-                            });
-                            setQueueModalOpen(true);
-                          }}
-                          className="h-8 text-xs gap-1 border-primary/30 text-primary hover:bg-primary/10 font-semibold"
-                        >
-                          <Send className="h-3.5 w-3.5" />
-                          Publish / Schedule
-                        </Button>
+              {/* Batch Generation Notice & Progress */}
+              {isGeneratingBatch && generationProgress && (
+                <Card className="border-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/20">
+                  <CardContent className="py-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Loader2 className="h-5 w-5 text-emerald-600 animate-spin" />
+                      <div>
+                        <span className="text-sm font-semibold">Processing Clips with FFmpeg Engine...</span>
+                        <p className="text-xs text-muted-foreground">{generationProgress.statusText}</p>
                       </div>
-
-                      {/* Download Section for Finished Clip */}
-                      {lastRenderedClip && (
-                        <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 space-y-2">
-                          <div className="flex items-center justify-between text-xs text-emerald-700 dark:text-emerald-300 font-semibold">
-                            <span>Ready to Download or Share:</span>
-                            <span>{lastRenderedClip.duration.toFixed(1)}s MP4</span>
-                          </div>
-                          <Button
-                            variant="secondary"
-                            onClick={() => downloadRenderedVideo(lastRenderedClip.url, lastRenderedClip.title)}
-                            className="w-full h-8 text-xs gap-2 font-semibold text-emerald-600 dark:text-emerald-400 bg-background hover:bg-emerald-500/10 border"
-                          >
-                            <Download className="h-3.5 w-3.5" />
-                            Download Rendered MP4
-                          </Button>
-                        </div>
-                      )}
                     </div>
                   </CardContent>
                 </Card>
+              )}
 
-                {/* Batch Clipping Drawer */}
-                {clipBatch.length > 0 && (
-                  <Card className="border p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                        <Layers className="h-4 w-4 text-primary" />
-                        Batch Clips ({clipBatch.length})
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        <Button
-                          size="sm"
-                          onClick={handleRenderAllBatch}
-                          className="h-6 text-[10px] bg-primary font-semibold"
-                        >
-                          Render All Batch
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setClipBatch([])}
-                          className="h-6 text-[10px] text-destructive hover:bg-destructive/10"
-                        >
-                          Clear
-                        </Button>
-                      </div>
-                    </div>
+              {batchNotice && (
+                <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-lg text-xs flex items-center justify-between">
+                  <span>{batchNotice}</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setActiveTab("my_clips")}
+                    className="h-7 text-xs bg-white"
+                  >
+                    View in My Clips →
+                  </Button>
+                </div>
+              )}
 
-                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                      {clipBatch.map((c, i) => (
-                        <div
-                          key={c.id}
-                          className="p-2.5 rounded-lg border bg-muted/30 text-xs flex items-center justify-between gap-2"
-                        >
-                          <div className="truncate space-y-0.5">
-                            <span className="font-semibold block truncate text-foreground">
-                              {i + 1}. {c.title}
-                            </span>
-                            <span className="text-[10px] text-muted-foreground font-mono">
-                              {formatTimecode(c.startTime).slice(3, 8)} → {formatTimecode(c.endTime).slice(3, 8)} ({c.duration.toFixed(1)}s) • {c.aspectRatio}
-                            </span>
-                            {c.status === "completed" && (
-                              <Badge variant="outline" className="text-[9px] text-emerald-600 border-emerald-500/30">
-                                Completed
-                              </Badge>
-                            )}
-                            {c.status === "processing" && (
-                              <span className="text-[9px] text-primary flex items-center gap-1">
-                                <Loader2 className="h-2.5 w-2.5 animate-spin" /> Rendering...
-                              </span>
-                            )}
+              {/* SORT & FILTER TOOLBAR */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-muted/40 p-3 rounded-lg border">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+                    <ArrowUpDown className="h-3.5 w-3.5" /> Sort:
+                  </span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as SortOption)}
+                    className="text-xs bg-background border rounded px-2.5 py-1.5 font-medium cursor-pointer"
+                  >
+                    <option value="viral_score">Highest Viral Score (Default)</option>
+                    <option value="hook">Best Hook Potential</option>
+                    <option value="surprising">Most Surprising</option>
+                    <option value="funny">Funny Moments</option>
+                    <option value="emotional">Emotional Impact</option>
+                    <option value="educational">Educational Value</option>
+                    <option value="chronological">Chronological (Video Order)</option>
+                  </select>
+
+                  <div className="h-4 w-px bg-border mx-1" />
+
+                  {/* Category Filter Chips */}
+                  <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
+                    {[
+                      { id: "all", label: "All Clips" },
+                      { id: "hook", label: "⚡ Hooks" },
+                      { id: "surprising", label: "😲 Surprising" },
+                      { id: "funny", label: "😂 Funny" },
+                      { id: "emotional", label: "❤️ Emotional" },
+                      { id: "educational", label: "💡 Educational" },
+                    ].map((chip) => (
+                      <button
+                        key={chip.id}
+                        onClick={() => setCategoryFilter(chip.id)}
+                        className={`text-[11px] px-2.5 py-1 rounded-full font-medium transition-all ${
+                          categoryFilter === chip.id
+                            ? "bg-primary text-primary-foreground font-semibold"
+                            : "bg-background hover:bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {chip.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs">
+                  <button
+                    onClick={() => selectAllClips(true)}
+                    className="text-primary hover:underline font-medium"
+                  >
+                    Select All
+                  </button>
+                  <span>•</span>
+                  <button
+                    onClick={() => selectAllClips(false)}
+                    className="text-muted-foreground hover:underline"
+                  >
+                    Deselect All
+                  </button>
+                </div>
+              </div>
+
+              {/* CANDIDATE CARDS GRID */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {filteredClips.map((clip) => {
+                  const isSelected = !!clip.selected;
+                  const isPreviewing = previewingClip?.clip_number === clip.clip_number;
+                  const isOptionsExpanded = expandedClipOptions === clip.clip_number;
+
+                  return (
+                    <Card
+                      key={clip.clip_number}
+                      className={`transition-all shadow-sm flex flex-col justify-between border-2 ${
+                        isSelected
+                          ? "border-primary bg-primary/[0.02]"
+                          : "border-border hover:border-muted-foreground/30"
+                      }`}
+                    >
+                      <CardHeader className="p-4 pb-2">
+                        {/* Top Metadata Bar */}
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleClipSelection(clip.clip_number)}
+                              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+                            />
+                            <Badge variant="outline" className="font-bold text-xs bg-background">
+                              Clip #{clip.clip_number}
+                            </Badge>
+                            <Badge
+                              variant="secondary"
+                              className={`text-[11px] capitalize ${
+                                clip.category === "surprising"
+                                  ? "bg-purple-100 text-purple-800"
+                                  : clip.category === "funny"
+                                  ? "bg-amber-100 text-amber-800"
+                                  : clip.category === "emotional"
+                                  ? "bg-rose-100 text-rose-800"
+                                  : clip.category === "educational"
+                                  ? "bg-blue-100 text-blue-800"
+                                  : "bg-emerald-100 text-emerald-800"
+                              }`}
+                            >
+                              {clip.category}
+                            </Badge>
                           </div>
 
-                          <div className="flex items-center gap-1 shrink-0">
-                            {c.renderedUrl ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => downloadRenderedVideo(c.renderedUrl!, c.title)}
-                                className="h-7 px-2 text-[10px] text-emerald-600"
-                              >
-                                <Download className="h-3 w-3" />
-                              </Button>
-                            ) : null}
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => {
-                                setActiveClipForQueue({
-                                  id: c.id,
-                                  title: c.title,
-                                  caption: c.caption,
-                                  videoUrl: c.renderedUrl || currentVideo.url,
-                                  aspectRatio: c.aspectRatio,
-                                  duration: c.duration,
-                                });
-                                setQueueModalOpen(true);
-                              }}
-                              className="h-7 px-2 text-[10px] text-primary"
-                            >
-                              <Send className="h-3 w-3" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setClipBatch((prev) => prev.filter((item) => item.id !== c.id))}
-                              className="h-7 px-1.5 text-muted-foreground hover:text-destructive"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
+                          {/* Viral Score Badge */}
+                          <div className="flex items-center gap-1 bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full text-xs font-black">
+                            <Flame className="h-3.5 w-3.5 fill-current" />
+                            <span>{clip.viral_score}/100</span>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  </Card>
-                )}
+
+                        {/* Title (Editable or select from options) */}
+                        <div className="space-y-1">
+                          <input
+                            type="text"
+                            value={clip.title}
+                            onChange={(e) => updateClipTitle(clip.clip_number, e.target.value)}
+                            className="font-bold text-sm w-full bg-transparent hover:bg-muted/50 focus:bg-background border-b border-transparent focus:border-primary px-1 py-0.5 rounded outline-none transition-all"
+                            title="Click to edit title"
+                          />
+                          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                            <span className="font-semibold text-foreground bg-muted px-1.5 py-0.5 rounded">
+                              {clip.start_formatted} - {clip.end_formatted}
+                            </span>
+                            <span>•</span>
+                            <span>{clip.duration} seconds</span>
+                          </div>
+                        </div>
+                      </CardHeader>
+
+                      <CardContent className="p-4 pt-1 space-y-3 flex-1 flex flex-col justify-between">
+                        {/* Video Preview Player (YouTube or HTML5) */}
+                        <div className="rounded-lg overflow-hidden bg-black aspect-video relative group">
+                          {analysis.source_type === "youtube" && analysis.video_id ? (
+                            isPreviewing ? (
+                              <iframe
+                                src={`https://www.youtube.com/embed/${analysis.video_id}?start=${clip.start_time}&end=${clip.end_time}&autoplay=1`}
+                                title={clip.title}
+                                className="w-full h-full border-0"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                allowFullScreen
+                              />
+                            ) : (
+                              <div
+                                onClick={() => setPreviewingClip(clip)}
+                                className="w-full h-full relative cursor-pointer"
+                              >
+                                <img
+                                  src={analysis.thumbnail_url || `https://i.ytimg.com/vi/${analysis.video_id}/hqdefault.jpg`}
+                                  alt={clip.title}
+                                  className="w-full h-full object-cover group-hover:opacity-80 transition-opacity"
+                                />
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                  <div className="bg-primary/90 text-primary-foreground p-3 rounded-full shadow-lg group-hover:scale-110 transition-transform">
+                                    <Play className="h-5 w-5 fill-current ml-0.5" />
+                                  </div>
+                                </div>
+                                <div className="absolute bottom-2 left-2 bg-black/75 text-white px-2 py-0.5 rounded text-[10px] font-mono">
+                                  Preview {clip.start_formatted} - {clip.end_formatted}
+                                </div>
+                              </div>
+                            )
+                          ) : (
+                            <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground p-2 text-center">
+                              <video
+                                src={`${videoUrl}#t=${clip.start_time},${clip.end_time}`}
+                                controls
+                                className="w-full h-full object-contain"
+                              />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Rationale & Hook */}
+                        <div className="text-xs space-y-1.5 bg-muted/30 p-2.5 rounded-lg border">
+                          <p className="text-muted-foreground">
+                            <span className="font-semibold text-foreground">Hook: </span>
+                            "{clip.hook}"
+                          </p>
+                          <p className="text-muted-foreground line-clamp-2">
+                            <span className="font-semibold text-foreground">Why Viral: </span>
+                            {clip.reason}
+                          </p>
+                        </div>
+
+                        {/* Output Settings (Format & Subtitles) */}
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <label className="text-[10px] text-muted-foreground uppercase font-semibold">
+                              Aspect Ratio
+                            </label>
+                            <select
+                              value={clip.aspect_ratio || "9:16"}
+                              onChange={(e) =>
+                                updateClipSettings(clip.clip_number, e.target.value as AspectRatio)
+                              }
+                              className="w-full mt-0.5 text-xs bg-background border rounded px-2 py-1 font-medium"
+                            >
+                              <option value="9:16">9:16 (Shorts/Reels)</option>
+                              <option value="16:9">16:9 (Landscape)</option>
+                              <option value="1:1">1:1 (Square)</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] text-muted-foreground uppercase font-semibold">
+                              Subtitle Style
+                            </label>
+                            <select
+                              value={clip.subtitle_style || "viral_bold"}
+                              onChange={(e) =>
+                                updateClipSettings(
+                                  clip.clip_number,
+                                  undefined,
+                                  e.target.value as SubtitleStyle
+                                )
+                              }
+                              className="w-full mt-0.5 text-xs bg-background border rounded px-2 py-1 font-medium"
+                            >
+                              <option value="viral_bold">Viral Bold (Yellow)</option>
+                              <option value="clean_minimal">Clean Minimal</option>
+                              <option value="karaoke">Karaoke (Cyan)</option>
+                              <option value="none">No Subtitles</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Expandable AI Title & Hook Options Accordion */}
+                        <div className="border rounded-lg overflow-hidden text-xs">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedClipOptions(
+                                isOptionsExpanded ? null : clip.clip_number
+                              )
+                            }
+                            className="w-full flex items-center justify-between p-2 bg-muted/40 hover:bg-muted font-medium text-muted-foreground hover:text-foreground"
+                          >
+                            <span className="flex items-center gap-1.5">
+                              <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+                              View 5 Viral Titles & Hooks
+                            </span>
+                            {isOptionsExpanded ? (
+                              <ChevronDown className="h-4 w-4" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4" />
+                            )}
+                          </button>
+
+                          {isOptionsExpanded && (
+                            <div className="p-3 space-y-3 bg-background border-t">
+                              <div>
+                                <span className="font-semibold text-foreground text-[11px] block mb-1">
+                                  Alternative Viral Titles (Click to Apply):
+                                </span>
+                                <div className="space-y-1">
+                                  {clip.title_options.map((t, idx) => (
+                                    <button
+                                      key={idx}
+                                      type="button"
+                                      onClick={() => updateClipTitle(clip.clip_number, t)}
+                                      className={`w-full text-left text-xs p-1.5 rounded transition-all flex items-center justify-between ${
+                                        clip.title === t
+                                          ? "bg-primary/10 text-primary font-semibold border border-primary/30"
+                                          : "hover:bg-muted"
+                                      }`}
+                                    >
+                                      <span className="line-clamp-1">{t}</span>
+                                      {clip.title === t && <Check className="h-3.5 w-3.5 shrink-0" />}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <div>
+                                <span className="font-semibold text-foreground text-[11px] block mb-1">
+                                  Opening Hook Options:
+                                </span>
+                                <ul className="list-disc list-inside space-y-1 text-muted-foreground text-[11px]">
+                                  {clip.hook_options.map((h, idx) => (
+                                    <li key={idx} className="line-clamp-1">
+                                      {h}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+
+                              <div>
+                                <span className="font-semibold text-foreground text-[11px] block mb-1">
+                                  Hashtags:
+                                </span>
+                                <div className="flex flex-wrap gap-1">
+                                  {clip.hashtags.map((tag, idx) => (
+                                    <Badge key={idx} variant="outline" className="text-[10px]">
+                                      {tag}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Card Actions */}
+                        <div className="pt-2 flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant={isSelected ? "default" : "outline"}
+                            onClick={() => toggleClipSelection(clip.clip_number)}
+                            className="flex-1 text-xs font-semibold"
+                          >
+                            {isSelected ? (
+                              <>
+                                <Check className="h-3.5 w-3.5 mr-1" />
+                                Selected
+                              </>
+                            ) : (
+                              "Select Clip"
+                            )}
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => handleGenerateSingle(clip)}
+                            disabled={isGeneratingBatch}
+                            className="text-xs font-semibold"
+                          >
+                            <Zap className="h-3.5 w-3.5 mr-1 text-amber-500" />
+                            Generate
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             </div>
-          </div>
-        )
+          )}
+        </div>
       ) : (
-        /* ========================================================================= */
-        /* 3. MY CLIPS REPOSITORY (SAVED IN SUPABASE STORAGE & DATABASE)             */
-        /* ========================================================================= */
-        <Card className="border">
-          <CardHeader className="p-4 border-b flex flex-row items-center justify-between">
+        /* TAB 2: MY CLIPS & PUBLISHING STUDIO */
+        <div className="space-y-6">
+          <div className="flex items-center justify-between border-b pb-4">
             <div>
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <Bookmark className="h-4 w-4 text-primary" />
-                Saved Clips Library
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Real rendered clips stored in Supabase Storage and registered in your Video Library.
-              </CardDescription>
+              <h2 className="text-lg font-bold">My Processed Clips</h2>
+              <p className="text-xs text-muted-foreground">
+                All extracted vertical clips ready for instant publishing to Facebook Reels and YouTube Shorts.
+              </p>
             </div>
             <Button
               variant="outline"
               size="sm"
-              onClick={fetchSavedClips}
-              disabled={loadingSavedClips}
-              className="h-8 text-xs gap-1.5"
+              onClick={loadUserClips}
+              disabled={loadingClips}
+              className="text-xs gap-1.5"
             >
-              {loadingSavedClips ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+              <RefreshCw className={`h-3.5 w-3.5 ${loadingClips ? "animate-spin" : ""}`} />
               Refresh
             </Button>
-          </CardHeader>
+          </div>
 
-          <CardContent className="p-4">
-            {loadingSavedClips ? (
-              <div className="py-12 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                Loading saved clips...
-              </div>
-            ) : savedClips.length === 0 ? (
-              <div className="py-12 text-center space-y-2">
-                <Scissors className="h-8 w-8 text-muted-foreground/50 mx-auto" />
-                <p className="text-xs font-semibold text-foreground">No Processed Clips Yet</p>
-                <p className="text-[11px] text-muted-foreground">
-                  Upload a video in the Studio tab and render your first 9:16 vertical Reel.
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                {savedClips.map((clip) => (
-                  <div
-                    key={clip.id}
-                    className="rounded-xl border bg-card p-3 space-y-3 hover:border-primary/50 transition-colors shadow-sm flex flex-col justify-between"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="font-semibold text-xs text-foreground truncate block">
-                          {clip.clip_title}
-                        </span>
-                        <Badge variant="outline" className="text-[9px] shrink-0 font-mono">
-                          {clip.aspect_ratio}
-                        </Badge>
-                      </div>
-
-                      <div className="aspect-[9/16] bg-black rounded-lg overflow-hidden flex items-center justify-center relative">
-                        <video
-                          src={clip.exported_url || clip.source_video_url}
-                          controls
-                          className="h-full w-full object-cover"
-                        />
-                      </div>
-
-                      <div className="text-[10px] text-muted-foreground space-y-0.5 pt-1">
-                        <div className="flex justify-between">
-                          <span>Duration:</span>
-                          <span className="font-mono font-medium text-foreground">{clip.duration}s</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Source:</span>
-                          <span className="truncate max-w-[120px]">{clip.source_video_name || "Uploaded Video"}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 pt-2 border-t">
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          setActiveClipForQueue({
-                            id: clip.id,
-                            title: clip.clip_title,
-                            caption: clip.caption,
-                            videoUrl: clip.exported_url || clip.source_video_url,
-                            aspectRatio: clip.aspect_ratio,
-                            duration: clip.duration,
-                          });
-                          setQueueModalOpen(true);
-                        }}
-                        className="flex-1 h-7 text-[11px] gap-1 bg-primary text-primary-foreground font-semibold"
-                      >
-                        <Send className="h-3 w-3" />
-                        Publish
-                      </Button>
-
-                      {clip.exported_url && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => downloadRenderedVideo(clip.exported_url!, clip.clip_title)}
-                          className="h-7 px-2 text-foreground"
-                          title="Download MP4"
-                        >
-                          <Download className="h-3 w-3" />
-                        </Button>
-                      )}
-
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={async () => {
-                          await fetch(`/api/clipper?id=${clip.id}`, { method: "DELETE" });
-                          setSavedClips((prev) => prev.filter((c) => c.id !== clip.id));
-                        }}
-                        className="h-7 px-2 text-muted-foreground hover:text-destructive"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Select from Video Library Modal */}
-      {libraryModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="w-full max-w-lg rounded-2xl border bg-card p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between border-b pb-3">
-              <div className="space-y-0.5">
-                <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
-                  <FolderOpen className="h-4 w-4 text-primary" />
-                  Select Video from Library
-                </h3>
-                <p className="text-xs text-muted-foreground">
-                  Pick an existing video from your library to open in the Video Clipper.
-                </p>
-              </div>
-              <button
-                onClick={() => setLibraryModalOpen(false)}
-                className="rounded-full p-1 text-muted-foreground hover:bg-muted"
-              >
-                <X className="h-4 w-4" />
-              </button>
+          {loadingClips ? (
+            <div className="py-16 text-center text-muted-foreground flex flex-col items-center justify-center gap-2">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="text-sm">Loading your clips library...</p>
             </div>
-
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-              {loadingLibrary ? (
-                <div className="py-12 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin text-primary" /> Loading videos...
-                </div>
-              ) : libraryVideos.length === 0 ? (
-                <div className="py-12 text-center text-xs text-muted-foreground">
-                  No videos found in your library. Please upload a new video.
-                </div>
-              ) : (
-                libraryVideos.map((v) => (
-                  <button
-                    key={v.id}
-                    type="button"
-                    onClick={() => selectLibraryVideo(v)}
-                    className="w-full p-3 rounded-xl border text-left text-xs hover:border-primary/50 transition-all flex items-center justify-between gap-3 bg-muted/20"
-                  >
-                    <div className="truncate space-y-0.5">
-                      <span className="font-semibold block truncate text-foreground">{v.title}</span>
-                      <span className="text-[10px] text-muted-foreground font-mono">
-                        {v.duration_seconds ? `${v.duration_seconds}s` : "30s"} • {v.resolution || "1080p"}
-                      </span>
-                    </div>
-                    <Badge variant="outline" className="text-[10px] shrink-0">
-                      Open in Clipper
-                    </Badge>
-                  </button>
-                ))
-              )}
-            </div>
-
-            <div className="pt-2 border-t flex justify-end">
-              <Button variant="outline" size="sm" onClick={() => setLibraryModalOpen(false)} className="text-xs">
-                Close
+          ) : myClips.length === 0 ? (
+            <div className="py-16 text-center border-2 border-dashed rounded-xl space-y-3 bg-muted/20">
+              <Scissors className="h-10 w-10 mx-auto text-muted-foreground" />
+              <h3 className="text-base font-bold">No clips generated yet</h3>
+              <p className="text-xs text-muted-foreground max-w-md mx-auto">
+                Paste any video URL in the AI Clip Finder to detect viral moments and generate vertical Shorts.
+              </p>
+              <Button onClick={() => setActiveTab("finder")} className="text-xs font-semibold">
+                Go to AI Clip Finder
               </Button>
             </div>
-          </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {myClips.map((clip) => (
+                <Card key={clip.id} className="overflow-hidden shadow-sm flex flex-col justify-between">
+                  <div className="relative aspect-[9/16] bg-black max-h-[360px] overflow-hidden">
+                    <video
+                      src={clip.exported_url || clip.source_video_url}
+                      controls
+                      playsInline
+                      preload="metadata"
+                      className="w-full h-full object-contain"
+                    />
+                    <div className="absolute top-2 right-2 flex items-center gap-1">
+                      <Badge className="bg-black/80 text-white text-[10px]">
+                        {clip.aspect_ratio || "9:16"}
+                      </Badge>
+                      {clip.viral_score && (
+                        <Badge className="bg-amber-500 text-white text-[10px] font-bold">
+                          🔥 {clip.viral_score}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+
+                  <CardContent className="p-4 space-y-3 flex-1 flex flex-col justify-between">
+                    <div>
+                      <h3 className="font-bold text-sm line-clamp-1">{clip.clip_title}</h3>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                        <span>{clip.duration?.toFixed(1)}s</span>
+                        <span>•</span>
+                        <span>{clip.resolution || "1080p"}</span>
+                        <span>•</span>
+                        <span>{clip.created_at ? new Date(clip.created_at).toLocaleDateString() : "Ready"}</span>
+                      </div>
+                      {clip.caption && (
+                        <p className="text-xs text-muted-foreground line-clamp-2 mt-2 bg-muted/40 p-2 rounded">
+                          {clip.caption}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2 pt-2 border-t">
+                      {/* Publishing Actions */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setSelectedClipForQueue(clip);
+                            setQueueModalOpen(true);
+                          }}
+                          className="w-full text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white"
+                        >
+                          <Share2 className="h-3.5 w-3.5 mr-1" />
+                          Publish Post
+                        </Button>
+
+                        <a
+                          href={clip.exported_url || clip.source_video_url}
+                          download={`clip-${clip.clip_title || "video"}.mp4`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="w-full"
+                        >
+                          <Button size="sm" variant="outline" className="w-full text-xs font-semibold">
+                            <Download className="h-3.5 w-3.5 mr-1" />
+                            Download
+                          </Button>
+                        </a>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-[11px] text-emerald-600 font-medium flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3" /> Ready in Library
+                        </span>
+                        <button
+                          onClick={() => handleDeleteClip(clip.id)}
+                          className="text-xs text-rose-500 hover:text-rose-700 hover:underline flex items-center gap-1"
+                        >
+                          <Trash2 className="h-3 w-3" /> Delete
+                        </button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Send to Publishing Queue Modal */}
-      <SendToQueueModal
-        isOpen={queueModalOpen}
-        onClose={() => setQueueModalOpen(false)}
-        clip={activeClipForQueue}
-        onSuccess={() => {
-          fetchSavedClips();
-        }}
-      />
+      {/* Select From Video Library Modal */}
+      {libraryModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <Card className="w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
+            <CardHeader className="flex flex-row items-center justify-between border-b pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <FolderOpen className="h-5 w-5 text-primary" />
+                Select Video from Your Library
+              </CardTitle>
+              <Button size="sm" variant="ghost" onClick={() => setLibraryModalOpen(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </CardHeader>
+            <CardContent className="p-4 overflow-y-auto flex-1 space-y-3">
+              {loadingLibrary ? (
+                <div className="py-12 text-center text-muted-foreground flex flex-col items-center gap-2">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  <p className="text-xs">Fetching library videos...</p>
+                </div>
+              ) : libraryVideos.length === 0 ? (
+                <div className="py-12 text-center text-muted-foreground">
+                  <p className="text-sm">No videos found in your library.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {libraryVideos.map((v) => (
+                    <div
+                      key={v.id}
+                      onClick={() => handleSelectLibraryVideo(v)}
+                      className="p-3 border rounded-lg hover:border-primary hover:bg-muted/40 cursor-pointer transition-all flex flex-col justify-between"
+                    >
+                      <div>
+                        <h4 className="font-semibold text-xs line-clamp-1">{v.title}</h4>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          Duration: {v.duration_seconds || "Unknown"}s • {v.resolution || "1080p"}
+                        </p>
+                      </div>
+                      <Button size="sm" variant="secondary" className="mt-2 text-xs h-7">
+                        Analyze This Video
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* 1-Click Send to Queue / Publish Modal */}
+      {queueModalOpen && selectedClipForQueue && (
+        <SendToQueueModal
+          isOpen={queueModalOpen}
+          onClose={() => {
+            setQueueModalOpen(false);
+            setSelectedClipForQueue(null);
+          }}
+          clip={{
+            id: selectedClipForQueue.id,
+            title: selectedClipForQueue.clip_title,
+            caption: selectedClipForQueue.caption,
+            videoUrl: selectedClipForQueue.exported_url || selectedClipForQueue.source_video_url,
+            aspectRatio: selectedClipForQueue.aspect_ratio,
+            duration: selectedClipForQueue.duration,
+          }}
+          onSuccess={() => {
+            setQueueModalOpen(false);
+            setSelectedClipForQueue(null);
+            loadUserClips();
+          }}
+        />
+      )}
     </div>
   );
 }
