@@ -1,6 +1,15 @@
 import { test, describe } from "node:test";
 import assert from "node:assert";
+import * as fs from "fs";
+import * as path from "path";
+import { spawnSync } from "child_process";
 import { saveUserClip, getUserClips, deleteUserClip } from "../lib/clipper/storage";
+import {
+  probeVideoFile,
+  renderVideoClip,
+  formatBytes,
+  getFFmpegPath,
+} from "../lib/clipper/ffmpeg-engine";
 import {
   getYouTubeAuthUrl,
   getYouTubeRedirectUri,
@@ -12,8 +21,87 @@ import { PublishNowSchema, SchedulePostSchema } from "../lib/validations/publish
 
 describe("Video Clipper Studio & Multi-Platform Publishing", () => {
   const testUserId = "test-user-clipper-" + Date.now();
+  const testDir = path.join(process.cwd(), ".data", "test_suite");
+  const testVideoPath = path.join(testDir, "test_input.mp4");
 
-  describe("1. Video Clipper Storage & Lifecycle", () => {
+  // Create real test video if ffmpeg available
+  test("setup: generates a real 5-second test MP4 for clipping tests", () => {
+    if (!fs.existsSync(testDir)) fs.mkdirSync(testDir, { recursive: true });
+    const ffmpeg = getFFmpegPath();
+    const res = spawnSync(ffmpeg, [
+      "-y",
+      "-f", "lavfi", "-i", "testsrc=duration=5:size=1920x1080:rate=30",
+      "-f", "lavfi", "-i", "sine=frequency=1000:duration=5",
+      "-c:v", "libx264", "-c:a", "aac",
+      testVideoPath,
+    ]);
+    assert.strictEqual(res.status, 0);
+    assert.ok(fs.existsSync(testVideoPath));
+    assert.ok(fs.statSync(testVideoPath).size > 0);
+  });
+
+  describe("1. Real FFmpeg Video Processing & Probing", () => {
+    test("probeVideoFile accurately extracts real duration, width, height and resolution", () => {
+      const probe = probeVideoFile(testVideoPath);
+      assert.ok(probe);
+      assert.strictEqual(probe.width, 1920);
+      assert.strictEqual(probe.height, 1080);
+      assert.strictEqual(probe.resolution, "1920x1080");
+      assert.ok(probe.duration >= 4.9 && probe.duration <= 5.1);
+    });
+
+    test("renderVideoClip trims exact duration and crops to 9:16 vertical (1080x1920)", async () => {
+      const out9x16 = path.join(testDir, "output_9x16.mp4");
+      const result = await renderVideoClip({
+        inputPath: testVideoPath,
+        outputPath: out9x16,
+        startTime: 1.0,
+        duration: 2.5,
+        aspectRatio: "9:16",
+        cropPosition: "center",
+        resolution: "1080p",
+      });
+
+      assert.ok(fs.existsSync(out9x16));
+      assert.ok(result.sizeBytes > 0);
+      assert.strictEqual(result.duration, 2.5);
+
+      // Verify the rendered video actually has 1080x1920 dimensions
+      const probeOut = probeVideoFile(out9x16);
+      assert.strictEqual(probeOut.width, 1080);
+      assert.strictEqual(probeOut.height, 1920);
+      assert.strictEqual(probeOut.resolution, "1080x1920");
+      assert.ok(probeOut.duration >= 2.4 && probeOut.duration <= 2.6);
+    });
+
+    test("renderVideoClip crops to 1:1 square (1080x1080)", async () => {
+      const out1x1 = path.join(testDir, "output_1x1.mp4");
+      const result = await renderVideoClip({
+        inputPath: testVideoPath,
+        outputPath: out1x1,
+        startTime: 0.5,
+        duration: 2.0,
+        aspectRatio: "1:1",
+        cropPosition: "center",
+        resolution: "1080p",
+      });
+
+      assert.ok(fs.existsSync(out1x1));
+      assert.ok(result.sizeBytes > 0);
+
+      const probeOut = probeVideoFile(out1x1);
+      assert.strictEqual(probeOut.width, 1080);
+      assert.strictEqual(probeOut.height, 1080);
+    });
+
+    test("formatBytes formats file sizes correctly", () => {
+      assert.strictEqual(formatBytes(15728640), "15.0 MB");
+      assert.strictEqual(formatBytes(1048576), "1.0 MB");
+      assert.strictEqual(formatBytes(0), "0 MB");
+    });
+  });
+
+  describe("2. Video Clipper Storage & Lifecycle", () => {
     test("should successfully save a new 9:16 vertical video clip", async () => {
       const clip = await saveUserClip(testUserId, {
         source_video_url: "https://example.com/source.mp4",
@@ -24,14 +112,17 @@ describe("Video Clipper Studio & Multi-Platform Publishing", () => {
         end_time: 40.5,
         duration: 30.0,
         aspect_ratio: "9:16",
+        crop_position: "center",
         resolution: "1080p",
         subtitle_text: "WAIT TILL THE END 😱",
+        file_size: 1542890,
       });
 
       assert.ok(clip);
       assert.ok(clip.id);
       assert.strictEqual(clip.user_id, testUserId);
       assert.strictEqual(clip.aspect_ratio, "9:16");
+      assert.strictEqual(clip.crop_position, "center");
       assert.strictEqual(clip.duration, 30.0);
       assert.strictEqual(clip.subtitle_text, "WAIT TILL THE END 😱");
     });
@@ -55,7 +146,7 @@ describe("Video Clipper Studio & Multi-Platform Publishing", () => {
     });
   });
 
-  describe("2. YouTube OAuth & Multi-Platform Integration", () => {
+  describe("3. YouTube OAuth & Multi-Platform Integration", () => {
     test("should generate a valid Google OAuth consent URL for YouTube scopes", () => {
       const authUrl = getYouTubeAuthUrl("state-123");
       assert.ok(authUrl.includes("accounts.google.com/o/oauth2/v2/auth"));
@@ -84,7 +175,6 @@ describe("Video Clipper Studio & Multi-Platform Publishing", () => {
       assert.ok(account);
       assert.strictEqual(account.channel_id, "UC_TEST_CHANNEL_123");
       assert.strictEqual(account.channel_title, "Viral Shorts Daily");
-      // Access token must be encrypted
       assert.notStrictEqual(account.encrypted_access_token, "ya29.test_access_token_sensitive_12345");
 
       const accounts = await getYouTubeAccounts(testUserId);
@@ -98,7 +188,7 @@ describe("Video Clipper Studio & Multi-Platform Publishing", () => {
     });
   });
 
-  describe("3. Unified Multi-Platform Publishing Validation", () => {
+  describe("4. Unified Multi-Platform Publishing Validation", () => {
     test("should validate Facebook immediate publishing payload", () => {
       const fbPayload = {
         video_id: "vid-123",
