@@ -1,6 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
-import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY, isSupabaseConfigured } from "./client";
+import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY } from "./client";
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({
@@ -64,7 +64,7 @@ export async function updateSession(request: NextRequest) {
   // Check active persistent session or Supabase session
   const hasPersistentSession =
     Boolean(request.cookies.get("app_auth_session")?.value) ||
-    Boolean(request.cookies.get("demo_auth_session")?.value);
+    Boolean(request.cookies.get("sb-cbjjudqdfpunlpcnvsig-auth-token")?.value);
 
   // Redirect unauthenticated users from protected dashboard routes to /login
   if (isProtectedPath && !user && !hasPersistentSession) {

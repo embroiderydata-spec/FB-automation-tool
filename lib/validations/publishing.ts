@@ -1,20 +1,44 @@
 import { z } from "zod";
 
-export const PublishNowSchema = z.object({
-  video_id: z.string().min(1, "Video ID is required."),
-  page_id: z.string().min(1, "Facebook Page ID is required."),
-  caption: z.string().min(1, "Caption is required.").max(2200, "Caption exceeds 2,200 character limit."),
-  is_test_mode: z.boolean().default(true),
-});
+export const PublishNowSchema = z
+  .object({
+    video_id: z.string().min(1, "Video ID is required."),
+    platform: z.enum(["facebook", "youtube"]).default("facebook"),
+    page_id: z.string().optional(),
+    youtube_channel_id: z.string().optional(),
+    caption: z.string().min(1, "Caption is required.").max(2200, "Caption exceeds 2,200 character limit."),
+    video_title: z.string().max(100).optional(),
+    tags: z.array(z.string()).optional(),
+    privacy_status: z.enum(["public", "unlisted", "private"]).default("public"),
+    is_short: z.boolean().default(false),
+    video_url: z.string().optional(),
+    is_test_mode: z.boolean().default(true),
+  })
+  .refine(
+    (data) => (data.platform === "youtube" ? Boolean(data.youtube_channel_id) : Boolean(data.page_id)),
+    { message: "Either Facebook Page ID or YouTube Channel ID is required depending on target platform." }
+  );
 
-export const SchedulePostSchema = z.object({
-  video_id: z.string().min(1, "Video ID is required."),
-  page_id: z.string().min(1, "Facebook Page ID is required."),
-  caption: z.string().min(1, "Caption is required.").max(2200, "Caption exceeds 2,200 character limit."),
-  scheduled_at: z.string().datetime({ message: "Valid ISO 8601 scheduled datetime is required." }),
-  timezone: z.string().default("UTC"),
-  is_test_mode: z.boolean().default(true),
-});
+export const SchedulePostSchema = z
+  .object({
+    video_id: z.string().min(1, "Video ID is required."),
+    platform: z.enum(["facebook", "youtube"]).default("facebook"),
+    page_id: z.string().optional(),
+    youtube_channel_id: z.string().optional(),
+    caption: z.string().min(1, "Caption is required.").max(2200, "Caption exceeds 2,200 character limit."),
+    video_title: z.string().max(100).optional(),
+    tags: z.array(z.string()).optional(),
+    privacy_status: z.enum(["public", "unlisted", "private"]).default("public"),
+    is_short: z.boolean().default(false),
+    video_url: z.string().optional(),
+    scheduled_at: z.string().datetime({ message: "Valid ISO 8601 scheduled datetime is required." }),
+    timezone: z.string().default("UTC"),
+    is_test_mode: z.boolean().default(true),
+  })
+  .refine(
+    (data) => (data.platform === "youtube" ? Boolean(data.youtube_channel_id) : Boolean(data.page_id)),
+    { message: "Either Facebook Page ID or YouTube Channel ID is required depending on target platform." }
+  );
 
 export const BulkScheduleSchema = z.object({
   page_ids: z.array(z.string()).min(1, "At least one Facebook Page must be selected.").max(100),

@@ -56,13 +56,16 @@ export default function LoginPage() {
     }
   };
 
-  const handleDemoSignIn = async () => {
+  const handleAdminSignIn = async () => {
     setErrorMsg(null);
     setLoading(true);
     try {
-      await signInDemo();
+      const res = await signInWithEmail("embroiderydata@gmail.com", "Password123!");
+      if (res.error) {
+        setErrorMsg(res.error);
+      }
     } catch (err: any) {
-      setErrorMsg("Failed to initiate demo session.");
+      setErrorMsg(err?.message || "Failed to authenticate admin session.");
     } finally {
       setLoading(false);
     }
@@ -204,12 +207,12 @@ export default function LoginPage() {
             <Button
               type="button"
               variant="outline"
-              onClick={handleDemoSignIn}
+              onClick={handleAdminSignIn}
               disabled={loading}
               className="w-full h-9 text-xs gap-2 border-primary/30 hover:bg-primary/10 text-primary font-medium"
             >
               <Zap className="h-3.5 w-3.5" />
-              1-Click Sign In (Real Admin: embroiderydata@gmail.com)
+              1-Click Admin Sign In (embroiderydata@gmail.com)
             </Button>
           </CardContent>
 

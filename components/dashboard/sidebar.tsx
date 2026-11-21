@@ -19,6 +19,7 @@ import {
   X,
   Share2,
   Zap,
+  Scissors,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -70,6 +71,12 @@ export const navigationItems = [
     href: "/dashboard/videos",
     icon: Film,
     badge: null,
+  },
+  {
+    title: "Video Clipper",
+    href: "/dashboard/clipper",
+    icon: Scissors,
+    badge: "New",
   },
   {
     title: "Content Calendar",

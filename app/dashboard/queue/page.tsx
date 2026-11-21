@@ -25,6 +25,8 @@ import {
   Eye,
   Loader2,
   ShieldCheck,
+  Share2,
+  Youtube,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,6 +41,7 @@ export default function PublishingQueuePage() {
   const [jobs, setJobs] = useState<PublishingJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
+  const [selectedPlatform, setSelectedPlatform] = useState<string>("all");
   const [selectedPageId, setSelectedPageId] = useState<string>("all");
   const [pages, setPages] = useState<Array<{ id: string; name: string }>>([]);
   const [videos, setVideos] = useState<Array<{ id: string; title: string; video_url?: string; thumbnail_url?: string }>>([]);
@@ -60,13 +63,14 @@ export default function PublishingQueuePage() {
   useEffect(() => {
     loadData();
     loadEmergencyStatus();
-  }, [selectedStatus, selectedPageId]);
+  }, [selectedStatus, selectedPlatform, selectedPageId]);
 
   async function loadData() {
     try {
       setLoading(true);
       const params = new URLSearchParams();
       if (selectedStatus !== "all") params.set("status", selectedStatus);
+      if (selectedPlatform !== "all") params.set("platform", selectedPlatform);
       if (selectedPageId !== "all") params.set("page_id", selectedPageId);
 
       const [jobsRes, pagesRes, videosRes] = await Promise.all([
@@ -274,8 +278,8 @@ export default function PublishingQueuePage() {
         <TabsContent value="queue" className="space-y-4">
           {/* Filters Bar */}
           <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between p-3 rounded-lg border bg-muted/20 text-xs">
-            {/* Status Filter Buttons */}
-            <div className="flex flex-wrap gap-1">
+            {/* Status & Platform Filter Buttons */}
+            <div className="flex flex-wrap items-center gap-1">
               {[
                 { id: "all", label: "All" },
                 { id: "scheduled", label: "Scheduled" },
@@ -294,6 +298,33 @@ export default function PublishingQueuePage() {
                   {filter.label}
                 </Button>
               ))}
+
+              <div className="h-4 w-px bg-border mx-1" />
+
+              <Button
+                variant={selectedPlatform === "all" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setSelectedPlatform("all")}
+                className="h-7 text-[11px] px-2"
+              >
+                All Platforms
+              </Button>
+              <Button
+                variant={selectedPlatform === "facebook" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setSelectedPlatform("facebook")}
+                className="h-7 text-[11px] px-2 gap-1 text-blue-600 dark:text-blue-400"
+              >
+                <Share2 className="h-3 w-3" /> Facebook
+              </Button>
+              <Button
+                variant={selectedPlatform === "youtube" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setSelectedPlatform("youtube")}
+                className="h-7 text-[11px] px-2 gap-1 text-red-600 dark:text-red-400"
+              >
+                <Youtube className="h-3 w-3" /> YouTube
+              </Button>
             </div>
 
             {/* Page Selector */}
@@ -321,7 +352,7 @@ export default function PublishingQueuePage() {
                 <thead>
                   <tr className="border-b bg-muted/40 text-muted-foreground">
                     <th className="py-2.5 px-4 text-left font-semibold">Video</th>
-                    <th className="py-2.5 px-4 text-left font-semibold">Facebook Page</th>
+                    <th className="py-2.5 px-4 text-left font-semibold">Platform & Destination</th>
                     <th className="py-2.5 px-4 text-left font-semibold">Caption</th>
                     <th className="py-2.5 px-4 text-left font-semibold">Scheduled Date / Time</th>
                     <th className="py-2.5 px-4 text-left font-semibold">Status</th>
@@ -380,9 +411,29 @@ export default function PublishingQueuePage() {
                             </div>
                           </td>
 
-                          {/* Facebook Page */}
+                          {/* Platform & Destination */}
                           <td className="py-3 px-4 font-medium text-foreground">
-                            {job.facebook_page?.page_name || "Connected Page"}
+                            {job.platform === "youtube" ? (
+                              <div className="space-y-0.5">
+                                <Badge variant="outline" className="border-red-500/40 text-red-600 dark:text-red-400 text-[9px] gap-1 py-0">
+                                  <Youtube className="h-2.5 w-2.5" />
+                                  YouTube {job.is_short ? "Short" : "Video"}
+                                </Badge>
+                                <span className="block text-xs font-semibold truncate max-w-[150px]">
+                                  {job.video_title || "YouTube Channel"}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="space-y-0.5">
+                                <Badge variant="outline" className="border-blue-500/40 text-blue-600 dark:text-blue-400 text-[9px] gap-1 py-0">
+                                  <Share2 className="h-2.5 w-2.5" />
+                                  Facebook Reel
+                                </Badge>
+                                <span className="block text-xs font-semibold truncate max-w-[150px]">
+                                  {job.facebook_page?.page_name || "Connected Page"}
+                                </span>
+                              </div>
+                            )}
                           </td>
 
                           {/* Caption */}

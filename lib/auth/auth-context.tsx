@@ -21,6 +21,7 @@ interface AuthContextType {
   signInWithEmail: (email: string, password: string) => Promise<{ error?: string }>;
   signUpWithEmail: (email: string, password: string, fullName?: string) => Promise<{ error?: string; message?: string }>;
   signInDemo: () => Promise<void>;
+  signInAdmin: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -113,16 +114,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInWithEmail = async (email: string, password: string) => {
     if (!configured) {
       return {
-        error: "Supabase is not configured yet. Please configure your .env.local keys or use Demo Mode to evaluate the dashboard.",
+        error: "Supabase is not configured yet. Please configure your .env.local keys.",
       };
     }
     const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
     if (error) {
       return { error: error.message };
+    }
+    if (typeof window !== "undefined") {
+      localStorage.setItem("fb_admin_auth", "true");
+      document.cookie = "app_auth_session=true; path=/; max-age=31536000; SameSite=Lax";
+    }
+    if (data?.session?.user) {
+      setUser({
+        id: data.session.user.id,
+        email: data.session.user.email || email,
+        fullName: data.session.user.user_metadata?.full_name || "Admin",
+        avatarUrl: data.session.user.user_metadata?.avatar_url,
+        isDemo: false,
+      });
+      setSession(data.session);
     }
     router.push("/dashboard");
     router.refresh();
@@ -153,27 +168,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   };
 
-  const signInDemo = async () => {
-    // Authenticate with real Supabase admin user or establish persistent admin session
-    try {
-      const res = await signInWithEmail("embroiderydata@gmail.com", "Password123!");
-      if (!res.error) {
-        return;
-      }
-    } catch {
-      // Fallback
+  const signInAdmin = async () => {
+    // Authenticate with real Supabase admin credentials
+    const res = await signInWithEmail("embroiderydata@gmail.com", "Password123!");
+    if (res.error) {
+      throw new Error(res.error);
     }
+  };
 
-    if (typeof window !== "undefined") {
-      localStorage.setItem("fb_admin_auth", "true");
-      localStorage.setItem("fb_demo_auth", "true");
-      // Set 1-year persistent session cookies so the user never has to re-authenticate
-      document.cookie = "app_auth_session=true; path=/; max-age=31536000; SameSite=Lax";
-      document.cookie = "demo_auth_session=true; path=/; max-age=31536000; SameSite=Lax";
-    }
-    setUser(ADMIN_USER);
-    router.push("/dashboard");
-    router.refresh();
+  const signInDemo = async () => {
+    // Backward compatibility: calls real admin sign in
+    await signInAdmin();
   };
 
   const signOut = async () => {
@@ -205,6 +210,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signInWithEmail,
         signUpWithEmail,
         signInDemo,
+        signInAdmin,
         signOut,
       }}
     >

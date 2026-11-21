@@ -22,8 +22,15 @@ export type PublishingMode = "test" | "live";
 export interface PublishingJob {
   id: string;
   user_id: string;
+  platform?: "facebook" | "youtube";
+  youtube_channel_id?: string | null;
+  video_title?: string | null;
+  tags?: string[] | null;
+  privacy_status?: "public" | "unlisted" | "private";
+  is_short?: boolean;
+  youtube_video_id?: string | null;
   post_id?: string;
-  page_id: string;
+  page_id?: string;
   facebook_page_id?: string;
   video_id: string;
   caption: string;

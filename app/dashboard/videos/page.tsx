@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import {
   Film,
   Video,
@@ -38,6 +39,7 @@ import {
   Calendar,
   AlertCircle,
   Volume2,
+  Scissors,
 } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
@@ -470,12 +472,8 @@ function VideoLibraryContent() {
     { label: "Format", value: "H.264 / AAC MP4" },
     { label: "FPS", value: "30 FPS" },
     {
-      label: "Active Video",
-      value: providersStatus?.replicate?.is_configured
-        ? "Replicate (Active)"
-        : providersStatus?.runway?.is_configured
-        ? "Runway (Active)"
-        : "Not Configured",
+      label: "AI Video Generation",
+      value: "Coming Soon (Use Video Clipper)",
     },
     {
       label: "Voiceover",
@@ -516,8 +514,8 @@ function VideoLibraryContent() {
             <h2 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
               Video Production Studio & Library
             </h2>
-            <Badge variant="outline" className="border-indigo-500/40 text-indigo-600 dark:text-indigo-400 text-[10px]">
-              Active Engine
+            <Badge variant="outline" className="border-amber-500/40 text-amber-600 dark:text-amber-400 text-[10px]">
+              AI Video Gen: Coming Soon
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
@@ -605,6 +603,26 @@ function VideoLibraryContent() {
             </CardHeader>
 
             <CardContent className="space-y-4">
+              {/* Coming Soon Notice */}
+              <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 font-semibold">
+                    <Clock className="h-4 w-4 text-amber-500 shrink-0" />
+                    <span>AI Video Scene Generation & Pipelines — Coming Soon</span>
+                    <Badge variant="outline" className="border-amber-500/40 text-amber-600 dark:text-amber-400 text-[9px]">Coming Soon</Badge>
+                  </div>
+                  <p className="text-muted-foreground text-[11px]">
+                    Automatic AI video scene synthesis (text-to-video / image-to-video) via external AI providers is under active development. For immediate high-converting 9:16 vertical Reel creation from source videos, please use the <strong>Video Clipper Studio</strong>.
+                  </p>
+                </div>
+                <Link href="/dashboard/clipper">
+                  <Button size="sm" className="bg-primary text-primary-foreground text-xs gap-1.5 shrink-0">
+                    <Scissors className="h-3.5 w-3.5" />
+                    Open Video Clipper
+                  </Button>
+                </Link>
+              </div>
+
               {renderNotice && (
                 <div className="p-3 rounded-lg border border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 text-xs">
                   {renderNotice}
@@ -656,21 +674,11 @@ function VideoLibraryContent() {
 
                       <Button
                         size="sm"
-                        disabled={dispatchingRender}
-                        onClick={handleDispatchRender}
-                        className="gap-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 text-white shrink-0 h-8"
+                        disabled={true}
+                        className="gap-1.5 text-xs bg-muted text-muted-foreground cursor-not-allowed shrink-0 h-8 border"
                       >
-                        {dispatchingRender ? (
-                          <>
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            Dispatching Render...
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles className="h-3.5 w-3.5" />
-                            Dispatch Full Video Render
-                          </>
-                        )}
+                        <Clock className="h-3.5 w-3.5 text-amber-500" />
+                        Full Video Render (Coming Soon)
                       </Button>
                     </div>
                   </div>
@@ -711,31 +719,21 @@ function VideoLibraryContent() {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-7 text-[11px] gap-1 px-2"
-                            disabled={generatingImageId === scene.id}
-                            onClick={() => handleGenerateSceneImage(scene)}
+                            className="h-7 text-[11px] gap-1 px-2 opacity-60 cursor-not-allowed"
+                            disabled={true}
                           >
-                            {generatingImageId === scene.id ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Eye className="h-3 w-3 text-indigo-500" />
-                            )}
-                            9:16 Keyframe
+                            <Clock className="h-3 w-3 text-amber-500" />
+                            Keyframe (Coming Soon)
                           </Button>
 
                           <Button
-                            variant="default"
+                            variant="outline"
                             size="sm"
-                            className="h-7 text-[11px] gap-1 px-2 bg-indigo-600 hover:bg-indigo-700 text-white"
-                            disabled={generatingSceneId === scene.id}
-                            onClick={() => handleGenerateSceneClip(scene)}
+                            className="h-7 text-[11px] gap-1 px-2 opacity-60 cursor-not-allowed"
+                            disabled={true}
                           >
-                            {generatingSceneId === scene.id ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Video className="h-3 w-3" />
-                            )}
-                            AI Video Clip
+                            <Clock className="h-3 w-3 text-amber-500" />
+                            AI Clip (Coming Soon)
                           </Button>
                         </div>
                       </div>

@@ -70,7 +70,7 @@ export async function processPublishingQueue(
   const jobToProcess = candidateJobs[0] as PublishingJob;
   result.processed = 1;
 
-  const pageId = jobToProcess.facebook_page_id || jobToProcess.page_id;
+  const pageId = jobToProcess.facebook_page_id || jobToProcess.page_id || "";
 
   // 3. Check if specific Page is paused
   if (pageId && (await isPageQueuePaused(supabase, pageId))) {
