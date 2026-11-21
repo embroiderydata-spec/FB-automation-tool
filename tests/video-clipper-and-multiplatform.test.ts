@@ -22,7 +22,11 @@ import {
   saveYouTubeAccount,
   getYouTubeAccounts,
   disconnectYouTubeAccount,
+  saveYouTubeUploadRecord,
+  getYouTubeUploadHistory,
+  deleteYouTubeUploadRecord,
 } from "../lib/publishing/youtube";
+import { navigationItems } from "../components/dashboard/sidebar";
 import { PublishNowSchema, SchedulePostSchema } from "../lib/validations/publishing";
 
 describe("Video Clipper Studio & Multi-Platform Publishing", () => {
@@ -357,6 +361,63 @@ describe("Video Clipper Studio & Multi-Platform Publishing", () => {
       assert.strictEqual(probe.width, 1080);
       assert.strictEqual(probe.height, 1920);
       assert.strictEqual(probe.resolution, "1080x1920");
+    });
+  });
+
+  describe("6. Sidebar Navigation & Coming Soon Modules", () => {
+    test("verifies YouTube module is present in sidebar navigation", () => {
+      const ytItem = navigationItems.find((item) => item.href === "/dashboard/youtube");
+      assert.ok(ytItem, "YouTube item must exist in navigationItems");
+      assert.strictEqual(ytItem.title, "YouTube");
+    });
+
+    test("verifies Facebook Pages, AI Content Studio, and AI Workflows have COMING SOON badges", () => {
+      const fbItem = navigationItems.find((item) => item.href === "/dashboard/pages");
+      assert.ok(fbItem);
+      assert.strictEqual(fbItem.badge, "COMING SOON");
+
+      const contentItem = navigationItems.find((item) => item.href === "/dashboard/content");
+      assert.ok(contentItem);
+      assert.strictEqual(contentItem.badge, "COMING SOON");
+
+      const workflowItem = navigationItems.find((item) => item.href === "/dashboard/workflows");
+      assert.ok(workflowItem);
+      assert.strictEqual(workflowItem.badge, "COMING SOON");
+    });
+  });
+
+  describe("7. YouTube Upload Studio & History Persistence", () => {
+    test("saves and retrieves YouTube upload records", async () => {
+      const uploadRecord = await saveYouTubeUploadRecord(testUserId, {
+        channel_id: "UC_TEST_123",
+        channel_title: "Test Gaming Channel",
+        youtube_video_id: "yt_vid_abc999",
+        video_url: "https://youtube.com/watch?v=yt_vid_abc999",
+        title: "Incredible Gaming Moment #Shorts",
+        description: "Best play of the week!",
+        privacy_status: "public",
+        category_id: "20",
+        is_short: true,
+        tags: ["gaming", "shorts", "viral"],
+        status: "uploaded",
+      });
+
+      assert.ok(uploadRecord);
+      assert.ok(uploadRecord.id);
+      assert.strictEqual(uploadRecord.youtube_video_id, "yt_vid_abc999");
+      assert.strictEqual(uploadRecord.title, "Incredible Gaming Moment #Shorts");
+
+      const history = await getYouTubeUploadHistory(testUserId);
+      assert.ok(Array.isArray(history));
+      assert.ok(history.length > 0);
+      assert.strictEqual(history[0].youtube_video_id, "yt_vid_abc999");
+
+      // Delete test
+      const deleted = await deleteYouTubeUploadRecord(testUserId, uploadRecord.id);
+      assert.strictEqual(deleted, true);
+
+      const afterHistory = await getYouTubeUploadHistory(testUserId);
+      assert.strictEqual(afterHistory.some((h) => h.id === uploadRecord.id), false);
     });
   });
 });

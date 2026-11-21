@@ -19,20 +19,20 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     return NextResponse.redirect(
-      `${baseUrl}/dashboard/pages?youtube_error=${encodeURIComponent(error)}`
+      `${baseUrl}/dashboard/youtube?youtube_error=${encodeURIComponent(error)}`
     );
   }
 
   if (!code) {
     return NextResponse.redirect(
-      `${baseUrl}/dashboard/pages?youtube_error=${encodeURIComponent("No authorization code provided.")}`
+      `${baseUrl}/dashboard/youtube?youtube_error=${encodeURIComponent("No authorization code provided.")}`
     );
   }
 
   try {
     const user = await getAuthenticatedUser();
     if (!user) {
-      return NextResponse.redirect(`${baseUrl}/login?redirect=/dashboard/pages`);
+      return NextResponse.redirect(`${baseUrl}/login?redirect=/dashboard/youtube`);
     }
 
     const redirectUri = getYouTubeRedirectUri();
@@ -52,13 +52,13 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.redirect(
-      `${baseUrl}/dashboard/pages?youtube_success=${encodeURIComponent(
+      `${baseUrl}/dashboard/youtube?youtube_success=${encodeURIComponent(
         `Successfully connected YouTube channel "${channelInfo.channelTitle}"!`
       )}`
     );
   } catch (err: any) {
     return NextResponse.redirect(
-      `${baseUrl}/dashboard/pages?youtube_error=${encodeURIComponent(err.message || "Failed to connect YouTube account.")}`
+      `${baseUrl}/dashboard/youtube?youtube_error=${encodeURIComponent(err.message || "Failed to connect YouTube account.")}`
     );
   }
 }

@@ -30,10 +30,38 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { PageImportModal } from "@/components/dashboard/pages/page-import-modal";
 import { PageSettingsDrawer } from "@/components/dashboard/pages/page-settings-drawer";
 import { DisconnectDialog } from "@/components/dashboard/pages/disconnect-dialog";
+import { ComingSoonView } from "@/components/dashboard/coming-soon-view";
 
 function FacebookPagesContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // Temporary Coming Soon Gate (preserves all existing code intact)
+  const IS_COMING_SOON = true;
+  if (IS_COMING_SOON) {
+    return (
+      <ComingSoonView
+        moduleName="Facebook Pages Manager"
+        badgeText="Coming Soon"
+        icon={Share2}
+        description="The Facebook Page multi-account manager is temporarily under development while Meta Graph API permissions, token rotation security, and multi-page publishing reliability are being enhanced."
+        features={[
+          {
+            title: "Scale Up to 100 Pages",
+            description: "Centralized multi-page management with isolated page token encryption and quota guards.",
+          },
+          {
+            title: "Automated Reels Publishing",
+            description: "Autonomous scheduling and staggered publishing windows across all connected pages.",
+          },
+          {
+            title: "Audience & Niche Tuning",
+            description: "Individual tone of voice, branding watermarks, and niche adaptation for each page.",
+          },
+        ]}
+      />
+    );
+  }
 
   // URL state
   const oauthParam = searchParams.get("oauth");

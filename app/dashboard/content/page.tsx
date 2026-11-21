@@ -47,10 +47,38 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageNicheDialog } from "@/components/content/page-niche-dialog";
 import { SceneEditDialog, StoryboardSceneItem } from "@/components/content/scene-edit-dialog";
+import { ComingSoonView } from "@/components/dashboard/coming-soon-view";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 export default function AIContentStudioPage() {
+  // Temporary Coming Soon Gate (preserves all existing code intact)
+  const IS_COMING_SOON = true;
+  if (IS_COMING_SOON) {
+    return (
+      <ComingSoonView
+        moduleName="AI Content Studio"
+        badgeText="Coming Soon"
+        icon={Sparkles}
+        description="The AI Content Studio is currently under active development as we fine-tune multi-model script engines, anti-clickbait safety guards, and vertical storyboard generators."
+        features={[
+          {
+            title: "Viral Hook Lab",
+            description: "High-converting hook generator tailored to specific audience niches and retention targets.",
+          },
+          {
+            title: "9:16 Script & Storyboard Engine",
+            description: "Automated shot-by-shot visual scene planning with exact speech pacing and camera directions.",
+          },
+          {
+            title: "Budget & Rate Limiter Guards",
+            description: "Hard cost ceilings and token optimization across OpenAI, Anthropic, and Groq providers.",
+          },
+        ]}
+      />
+    );
+  }
+
   const [activeTab, setActiveTab] = useState("overview");
 
   // Global State

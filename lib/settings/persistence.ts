@@ -116,6 +116,21 @@ export async function getPlatformSettings(userId: string, email?: string): Promi
     // Fall through
   }
 
+  // Layer 3: Local disk cache (instant read)
+  let diskSettings: PlatformSettings | null = null;
+  try {
+    const filePath = getLocalSettingsPath(userId);
+    if (fs.existsSync(filePath)) {
+      const fileData = fs.readFileSync(filePath, "utf-8");
+      const parsed = JSON.parse(fileData);
+      diskSettings = {
+        ...DEFAULT_PLATFORM_SETTINGS,
+        ...parsed,
+        user_id: userId,
+      };
+    }
+  } catch {}
+
   // Layer 2b: Supabase Auth user_metadata via direct client
   if (email) {
     try {
@@ -130,6 +145,14 @@ export async function getPlatformSettings(userId: string, email?: string): Promi
 
       if (authData?.user?.user_metadata?.platform_settings) {
         const s = authData.user.user_metadata.platform_settings;
+        const remoteUpdated = s.updated_at ? new Date(s.updated_at).getTime() : 0;
+        const diskUpdated = diskSettings?.updated_at ? new Date(diskSettings.updated_at).getTime() : 0;
+
+        // If disk cache is strictly newer than remote metadata, prefer disk cache
+        if (diskSettings && diskUpdated >= remoteUpdated) {
+          return diskSettings;
+        }
+
         return {
           ...DEFAULT_PLATFORM_SETTINGS,
           ...s,
@@ -150,20 +173,8 @@ export async function getPlatformSettings(userId: string, email?: string): Promi
     }
   }
 
-  // Layer 3: Disk cache
-  try {
-    const filePath = getLocalSettingsPath(userId);
-    if (fs.existsSync(filePath)) {
-      const fileData = fs.readFileSync(filePath, "utf-8");
-      const parsed = JSON.parse(fileData);
-      return {
-        ...DEFAULT_PLATFORM_SETTINGS,
-        ...parsed,
-        user_id: userId,
-      };
-    }
-  } catch {
-    // Fall through to defaults
+  if (diskSettings) {
+    return diskSettings;
   }
 
   return {
@@ -204,6 +215,13 @@ export async function savePlatformSettings(
   };
 
   let persisted = false;
+
+  // Layer 0: Local disk cache (immediate zero-latency persistence)
+  try {
+    const filePath = getLocalSettingsPath(userId);
+    fs.writeFileSync(filePath, JSON.stringify(updatePayload, null, 2), "utf-8");
+    persisted = true;
+  } catch {}
 
   // Layer 1: Supabase user_platform_settings table
   try {

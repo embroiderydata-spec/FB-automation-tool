@@ -27,8 +27,32 @@ export interface YouTubeUploadOptions {
   description?: string;
   tags?: string[];
   privacyStatus: "public" | "unlisted" | "private";
-  videoUrl: string;
+  videoUrl?: string;
+  videoBuffer?: Buffer | ArrayBuffer;
+  categoryId?: string;
+  madeForKids?: boolean;
   isShort?: boolean;
+  thumbnailBuffer?: Buffer | ArrayBuffer;
+  thumbnailMimeType?: string;
+}
+
+export interface YouTubeUploadRecord {
+  id: string;
+  user_id: string;
+  channel_id: string;
+  channel_title?: string;
+  youtube_video_id: string;
+  video_url: string;
+  title: string;
+  description?: string;
+  thumbnail_url?: string;
+  privacy_status: "public" | "unlisted" | "private";
+  category_id?: string;
+  is_short: boolean;
+  tags?: string[];
+  status: "uploaded" | "processing" | "failed";
+  error_message?: string;
+  created_at: string;
 }
 
 function getServiceSupabase() {
@@ -347,11 +371,11 @@ export async function uploadVideoToYouTube(
           title: titleWithShorts.slice(0, 100),
           description: descriptionWithShorts.slice(0, 5000),
           tags: options.tags || ["automation", "shorts", "reels"],
-          categoryId: "22", // People & Blogs
+          categoryId: options.categoryId || "22", // Default: People & Blogs
         },
         status: {
           privacyStatus: options.privacyStatus || "public",
-          selfDeclaredMadeForKids: false,
+          selfDeclaredMadeForKids: options.madeForKids ?? false,
         },
       }),
     }
@@ -367,12 +391,19 @@ export async function uploadVideoToYouTube(
     throw new Error("YouTube API did not return a resumable upload location URL.");
   }
 
-  // 2. Fetch video binary from source URL
-  const videoBlobResponse = await fetch(options.videoUrl);
-  if (!videoBlobResponse.ok) {
-    throw new Error(`Failed to download video binary from ${options.videoUrl}`);
+  // 2. Obtain video binary buffer (either directly provided or fetched from videoUrl)
+  let videoBuffer: ArrayBuffer | Buffer;
+  if (options.videoBuffer) {
+    videoBuffer = options.videoBuffer;
+  } else if (options.videoUrl) {
+    const videoBlobResponse = await fetch(options.videoUrl);
+    if (!videoBlobResponse.ok) {
+      throw new Error(`Failed to download video binary from ${options.videoUrl}`);
+    }
+    videoBuffer = await videoBlobResponse.arrayBuffer();
+  } else {
+    throw new Error("No video buffer or video URL provided for YouTube upload.");
   }
-  const videoBuffer = await videoBlobResponse.arrayBuffer();
 
   // 3. Upload binary to YouTube resumable session
   const uploadResponse = await fetch(uploadLocation, {
@@ -381,7 +412,7 @@ export async function uploadVideoToYouTube(
       "Content-Type": "video/mp4",
       "Content-Length": videoBuffer.byteLength.toString(),
     },
-    body: videoBuffer,
+    body: videoBuffer as any,
   });
 
   const uploadResult = await uploadResponse.json();
@@ -394,5 +425,184 @@ export async function uploadVideoToYouTube(
     ? `https://youtube.com/shorts/${videoId}`
     : `https://www.youtube.com/watch?v=${videoId}`;
 
+  // 4. Optional custom thumbnail upload
+  if (options.thumbnailBuffer) {
+    try {
+      await fetch(
+        `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${videoId}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": options.thumbnailMimeType || "image/jpeg",
+          },
+          body: options.thumbnailBuffer as any,
+        }
+      );
+    } catch (thumbErr) {
+      console.warn("Custom thumbnail upload failed:", thumbErr);
+    }
+  }
+
   return { videoId, videoUrl };
+}
+
+function getLocalUploadHistoryPath(userId: string): string {
+  const dataDir = path.join(process.cwd(), ".data");
+  if (!fs.existsSync(dataDir)) {
+    try {
+      fs.mkdirSync(dataDir, { recursive: true });
+    } catch {}
+  }
+  return path.join(dataDir, `youtube-uploads-${userId}.json`);
+}
+
+function readLocalUploadHistory(userId: string): YouTubeUploadRecord[] {
+  try {
+    const p = getLocalUploadHistoryPath(userId);
+    if (fs.existsSync(p)) {
+      return JSON.parse(fs.readFileSync(p, "utf-8"));
+    }
+  } catch {}
+  return [];
+}
+
+function writeLocalUploadHistory(userId: string, records: YouTubeUploadRecord[]) {
+  try {
+    const p = getLocalUploadHistoryPath(userId);
+    fs.writeFileSync(p, JSON.stringify(records, null, 2), "utf-8");
+  } catch {}
+}
+
+export async function saveYouTubeUploadRecord(
+  userId: string,
+  recordData: Omit<YouTubeUploadRecord, "id" | "user_id" | "created_at"> & { id?: string; user_id?: string; created_at?: string }
+): Promise<YouTubeUploadRecord> {
+  const id = recordData.id || crypto.randomUUID();
+  const now = recordData.created_at || new Date().toISOString();
+
+  const record: YouTubeUploadRecord = {
+    ...recordData,
+    id,
+    user_id: userId,
+    created_at: now,
+  };
+
+  const service = getServiceSupabase();
+
+  // 1. Try public.publishing_jobs table
+  try {
+    await service.from("publishing_jobs").insert({
+      id,
+      user_id: userId,
+      platform: "youtube",
+      video_title: record.title,
+      caption: record.description || record.title,
+      privacy_status: record.privacy_status,
+      is_short: record.is_short,
+      youtube_video_id: record.youtube_video_id,
+      status: record.status === "failed" ? "failed" : "published",
+      published_at: now,
+      metadata: {
+        youtube_url: record.video_url,
+        channel_id: record.channel_id,
+        channel_title: record.channel_title,
+        tags: record.tags,
+        category_id: record.category_id,
+      },
+    });
+  } catch {}
+
+  // 2. Try Supabase Auth user metadata
+  try {
+    const existing = await getYouTubeUploadHistory(userId);
+    const updated = [record, ...existing.filter((u) => u.id !== id)];
+    await service.auth.admin.updateUserById(userId, {
+      user_metadata: {
+        youtube_uploads: updated,
+      },
+    });
+  } catch {}
+
+  // 3. Update local cache
+  const localList = readLocalUploadHistory(userId);
+  const updatedLocal = [record, ...localList.filter((u) => u.id !== id)];
+  writeLocalUploadHistory(userId, updatedLocal);
+
+  return record;
+}
+
+export async function getYouTubeUploadHistory(userId: string): Promise<YouTubeUploadRecord[]> {
+  const service = getServiceSupabase();
+
+  // 1. Try public.publishing_jobs where platform = 'youtube'
+  try {
+    const { data, error } = await service
+      .from("publishing_jobs")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("platform", "youtube")
+      .order("created_at", { ascending: false });
+
+    if (!error && Array.isArray(data) && data.length > 0) {
+      const records: YouTubeUploadRecord[] = data.map((job) => ({
+        id: job.id,
+        user_id: job.user_id,
+        channel_id: job.metadata?.channel_id || job.youtube_channel_id || "",
+        channel_title: job.metadata?.channel_title || "YouTube Channel",
+        youtube_video_id: job.youtube_video_id || "",
+        video_url: job.metadata?.youtube_url || (job.youtube_video_id ? `https://youtube.com/watch?v=${job.youtube_video_id}` : ""),
+        title: job.video_title || "Untitled Video",
+        description: job.caption,
+        privacy_status: job.privacy_status || "public",
+        category_id: job.metadata?.category_id,
+        is_short: !!job.is_short,
+        tags: job.tags,
+        status: job.status === "failed" ? "failed" : "uploaded",
+        error_message: job.error_message,
+        created_at: job.published_at || job.created_at,
+      }));
+      writeLocalUploadHistory(userId, records);
+      return records;
+    }
+  } catch {}
+
+  // 2. Try Supabase Auth user metadata
+  try {
+    const { data: userData, error: userError } = await service.auth.admin.getUserById(userId);
+    if (!userError && userData?.user?.user_metadata?.youtube_uploads) {
+      const metaUploads = userData.user.user_metadata.youtube_uploads;
+      if (Array.isArray(metaUploads) && metaUploads.length > 0) {
+        writeLocalUploadHistory(userId, metaUploads);
+        return metaUploads;
+      }
+    }
+  } catch {}
+
+  // 3. Fallback to local cache
+  return readLocalUploadHistory(userId);
+}
+
+export async function deleteYouTubeUploadRecord(userId: string, uploadId: string): Promise<boolean> {
+  const service = getServiceSupabase();
+
+  try {
+    await service.from("publishing_jobs").delete().eq("id", uploadId).eq("user_id", userId);
+  } catch {}
+
+  try {
+    const existing = await getYouTubeUploadHistory(userId);
+    const filtered = existing.filter((u) => u.id !== uploadId);
+    await service.auth.admin.updateUserById(userId, {
+      user_metadata: {
+        youtube_uploads: filtered,
+      },
+    });
+  } catch {}
+
+  const localList = readLocalUploadHistory(userId);
+  const updatedLocal = localList.filter((u) => u.id !== uploadId);
+  writeLocalUploadHistory(userId, updatedLocal);
+
+  return true;
 }

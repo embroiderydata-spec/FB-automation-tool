@@ -31,8 +31,36 @@ import {
   WorkflowSummaryMetrics,
   STAGE_LABELS,
 } from "@/lib/workflow/types";
+import { ComingSoonView } from "@/components/dashboard/coming-soon-view";
 
 export default function WorkflowsDashboardPage() {
+  // Temporary Coming Soon Gate (preserves all existing code intact)
+  const IS_COMING_SOON = true;
+  if (IS_COMING_SOON) {
+    return (
+      <ComingSoonView
+        moduleName="AI Autonomous Workflows"
+        badgeText="Coming Soon"
+        icon={Zap}
+        description="Autonomous 16-stage multi-page automated production pipelines are temporarily paused while our queue persistence, automated QC gates, and background worker infrastructure are being stress-tested."
+        features={[
+          {
+            title: "16-Stage Autonomous Pipeline",
+            description: "From raw niche prompt to final rendered vertical video with automatic quality assurance.",
+          },
+          {
+            title: "Automated QC Engine",
+            description: "Verifies 9:16 vertical resolution, audio sync drift, and minimum 10-second duration.",
+          },
+          {
+            title: "Multi-Page Staggered Posting",
+            description: "Intelligent scheduling across 100 pages without triggering spam or duplicate content limits.",
+          },
+        ]}
+      />
+    );
+  }
+
   const [workflows, setWorkflows] = useState<AutomationWorkflow[]>([]);
   const [metrics, setMetrics] = useState<WorkflowSummaryMetrics>({
     total_workflows: 0,

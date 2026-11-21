@@ -20,6 +20,7 @@ import {
   Share2,
   Zap,
   Scissors,
+  Youtube,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -52,19 +53,25 @@ export const navigationItems = [
     title: "Facebook Pages",
     href: "/dashboard/pages",
     icon: Share2,
-    badge: "100 max",
+    badge: "COMING SOON",
   },
   {
     title: "AI Content Studio",
     href: "/dashboard/content",
     icon: Sparkles,
-    badge: "AI",
+    badge: "COMING SOON",
   },
   {
     title: "AI Workflows",
     href: "/dashboard/workflows",
     icon: Zap,
-    badge: "Auto",
+    badge: "COMING SOON",
+  },
+  {
+    title: "YouTube",
+    href: "/dashboard/youtube",
+    icon: Youtube,
+    badge: "New",
   },
   {
     title: "Video Library",
@@ -224,9 +231,11 @@ export function Sidebar() {
                   {!collapsed && item.badge && (
                     <span
                       className={cn(
-                        "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                        "rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider shrink-0",
                         isActive
                           ? "bg-white/20 text-white"
+                          : item.badge === "COMING SOON"
+                          ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/20"
                           : "bg-muted text-muted-foreground"
                       )}
                     >
