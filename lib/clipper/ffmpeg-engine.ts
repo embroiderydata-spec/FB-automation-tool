@@ -376,3 +376,184 @@ export async function renderVideoClip(
     });
   });
 }
+
+/**
+ * Extracts a lightweight, mono 16kHz audio track from a video file for speech-to-text transcription.
+ */
+export async function extractAudioFromVideo(
+  inputPath: string,
+  outputPath: string
+): Promise<string> {
+  const ffmpeg = getFFmpegPath();
+
+  if (!fs.existsSync(inputPath)) {
+    throw new Error(`Input source video file not found at: ${inputPath}`);
+  }
+
+  const outDir = path.dirname(outputPath);
+  if (!fs.existsSync(outDir)) {
+    fs.mkdirSync(outDir, { recursive: true });
+  }
+
+  return new Promise((resolve, reject) => {
+    // 16kHz mono MP3 is ideal for Whisper and fast transfer
+    const args = [
+      "-y",
+      "-i",
+      inputPath,
+      "-vn",
+      "-acodec",
+      "libmp3lame",
+      "-ar",
+      "16000",
+      "-ac",
+      "1",
+      "-b:a",
+      "64k",
+      outputPath,
+    ];
+
+    const proc = spawn(ffmpeg, args);
+    let stderr = "";
+
+    proc.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    proc.on("close", (code) => {
+      if (code === 0 && fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+        return resolve(outputPath);
+      }
+
+      // Fallback to PCM 16-bit WAV if mp3 encoder is unavailable
+      const wavPath = outputPath.replace(/\.[^/.]+$/, "") + ".wav";
+      const wavArgs = [
+        "-y",
+        "-i",
+        inputPath,
+        "-vn",
+        "-acodec",
+        "pcm_s16le",
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
+        wavPath,
+      ];
+
+      const wavProc = spawn(ffmpeg, wavArgs);
+      wavProc.on("close", (wavCode) => {
+        if (wavCode === 0 && fs.existsSync(wavPath) && fs.statSync(wavPath).size > 0) {
+          return resolve(wavPath);
+        }
+        reject(
+          new Error(
+            `Failed to extract audio track from video (code ${code}): ${stderr.slice(-300)}`
+          )
+        );
+      });
+      wavProc.on("error", (wavErr) => {
+        reject(new Error(`Audio extraction error: ${wavErr.message}`));
+      });
+    });
+
+    proc.on("error", (err) => {
+      reject(new Error(`Failed to spawn FFmpeg for audio extraction: ${err.message}`));
+    });
+  });
+}
+
+/**
+ * Detects visual scene changes and camera cuts throughout the video using FFmpeg.
+ */
+export async function detectVideoSceneCuts(
+  inputPath: string,
+  threshold = 0.35,
+  maxScenes = 60
+): Promise<Array<{ timestamp: number; score: number }>> {
+  const ffmpeg = getFFmpegPath();
+
+  if (!fs.existsSync(inputPath)) {
+    return [];
+  }
+
+  return new Promise((resolve) => {
+    // Uses FFmpeg scene filter: gt(scene, 0.35)
+    const args = [
+      "-i",
+      inputPath,
+      "-vf",
+      `select='gt(scene,${threshold})',metadata=print:file=-`,
+      "-f",
+      "null",
+      "-",
+    ];
+
+    const proc = spawn(ffmpeg, args);
+    let output = "";
+
+    proc.stdout.on("data", (d) => {
+      output += d.toString();
+    });
+    proc.stderr.on("data", (d) => {
+      output += d.toString();
+    });
+
+    proc.on("close", () => {
+      const sceneResults: Array<{ timestamp: number; score: number }> = [];
+      const lines = output.split("\n");
+      let currentPts = -1;
+
+      for (const line of lines) {
+        const ptsMatch = line.match(/pts_time:([0-9.]+)/);
+        if (ptsMatch && ptsMatch[1]) {
+          currentPts = parseFloat(ptsMatch[1]);
+        }
+
+        const scoreMatch = line.match(/lavfi\.scene_score=([0-9.]+)/);
+        if (scoreMatch && scoreMatch[1] && currentPts >= 0) {
+          const score = parseFloat(scoreMatch[1]);
+          if (
+            !sceneResults.some((s) => Math.abs(s.timestamp - currentPts) < 1.0)
+          ) {
+            sceneResults.push({
+              timestamp: Number(currentPts.toFixed(2)),
+              score: Number(score.toFixed(3)),
+            });
+          }
+          currentPts = -1;
+          if (sceneResults.length >= maxScenes) break;
+        }
+      }
+
+      // If scene filter found fewer than 2 cuts, generate smooth visual anchor intervals
+      if (sceneResults.length === 0) {
+        try {
+          const probed = probeVideoFile(inputPath);
+          const dur = Math.max(1, probed.duration || 60);
+          const step = Math.max(1.0, Number((dur / 4).toFixed(1)));
+          for (let t = step; t < dur; t += step) {
+            sceneResults.push({
+              timestamp: Number(t.toFixed(1)),
+              score: 0.5,
+            });
+          }
+          if (sceneResults.length === 0) {
+            sceneResults.push({
+              timestamp: Number((dur * 0.5).toFixed(1)),
+              score: 0.5,
+            });
+          }
+        } catch {}
+      }
+
+      sceneResults.sort((a, b) => a.timestamp - b.timestamp);
+      resolve(sceneResults.slice(0, maxScenes));
+    });
+
+    proc.on("error", () => {
+      resolve([]);
+    });
+  });
+}
+

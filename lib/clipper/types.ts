@@ -31,7 +31,7 @@ export type ReframingMode =
 
 export type TargetPlatform = "facebook_reels" | "youtube_shorts" | "both";
 
-export type ClipDurationPreset = "30-60" | "60-90" | "90-180" | "custom";
+export type ClipDurationPreset = "15-30" | "30-60" | "60-90" | "90-180" | "custom";
 
 export interface ViralityBreakdown {
   hook: number;
@@ -208,6 +208,57 @@ export interface ClipRenderJob {
   exported_url?: string;
   storage_path?: string;
   file_size?: number;
+  error_message?: string;
+  metadata?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string;
+}
+
+export type AnalysisJobStatus =
+  | "queued"
+  | "fetching"
+  | "extracting_audio"
+  | "transcribing"
+  | "detecting_scenes"
+  | "analyzing_visuals"
+  | "finding_moments"
+  | "ranking_clips"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface DetectedScene {
+  timestamp: number;
+  timestamp_formatted: string;
+  confidence: number;
+  description?: string;
+}
+
+export interface VideoAnalysisJob {
+  id: string;
+  user_id: string;
+  video_url: string;
+  source_type: "youtube" | "direct_url" | "library" | "upload";
+  video_id?: string;
+  title: string;
+  author?: string;
+  duration: number;
+  thumbnail_url?: string;
+  status: AnalysisJobStatus;
+  progress: number;
+  current_stage: AnalysisJobStatus;
+  stage_label: string;
+  estimated_seconds_remaining?: number;
+  clip_count: number;
+  duration_preset: ClipDurationPreset;
+  target_platform: TargetPlatform;
+  language?: string;
+  ai_instructions?: string;
+  topic_query?: string;
+  transcript_cues?: TranscriptCue[];
+  detected_scenes?: DetectedScene[];
+  candidate_clips?: ViralCandidateClip[];
   error_message?: string;
   metadata?: Record<string, any>;
   created_at: string;

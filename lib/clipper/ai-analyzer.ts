@@ -261,19 +261,32 @@ export async function analyzeVideoViralMoments(
     text: t.text,
   }));
 
-  // Format transcript snippet for AI analysis
+  // Format transcript summary covering the ENTIRE video duration without cutting off after first 2 minutes
   let transcriptSnippet = "";
   if (transcriptAvailable) {
-    transcriptSnippet = transcript
-      .slice(0, 200)
-      .map((t) => `[${formatTimestamp(t.start)}] ${t.text}`)
-      .join("\n");
+    if (transcript.length <= 150) {
+      transcriptSnippet = transcript
+        .map((t) => `[${formatTimestamp(t.start)}] ${t.text}`)
+        .join("\n");
+    } else {
+      const step = transcript.length / 120;
+      const sampled: string[] = [];
+      for (let i = 0; i < 120; i++) {
+        const idx = Math.min(transcript.length - 1, Math.floor(i * step));
+        const t = transcript[idx];
+        sampled.push(`[${formatTimestamp(t.start)}] ${t.text}`);
+      }
+      transcriptSnippet = sampled.join("\n");
+    }
   }
 
   // Duration range bounds based on preset
   let minClipDur = 30;
   let maxClipDur = 60;
-  if (durationPreset === "60-90") {
+  if (durationPreset === "15-30") {
+    minClipDur = 15;
+    maxClipDur = 30;
+  } else if (durationPreset === "60-90") {
     minClipDur = 60;
     maxClipDur = 90;
   } else if (durationPreset === "90-180") {

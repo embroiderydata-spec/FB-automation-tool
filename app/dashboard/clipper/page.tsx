@@ -164,10 +164,140 @@ export default function VideoClipperPage() {
   const [queueModalOpen, setQueueModalOpen] = useState<boolean>(false);
   const [selectedClipForQueue, setSelectedClipForQueue] = useState<VideoClipRecord | null>(null);
 
-  // Load clips on initial mount
+  // Active Full Video Analysis Tracking State
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [activeJobProgress, setActiveJobProgress] = useState<number>(0);
+  const [activeJobStage, setActiveJobStage] = useState<string>("fetching");
+  const [activeJobStageLabel, setActiveJobStageLabel] = useState<string>("");
+  const [estimatedSecondsRemaining, setEstimatedSecondsRemaining] = useState<number>(0);
+  const analysisPollRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Load clips & restore latest analysis on initial mount
   useEffect(() => {
     loadUserClips();
+    restoreLatestAnalysis();
+    return () => {
+      if (analysisPollRef.current) clearInterval(analysisPollRef.current);
+    };
   }, []);
+
+  async function restoreLatestAnalysis() {
+    try {
+      const res = await fetch("/api/clipper/analysis/latest");
+      if (res.ok) {
+        const data = await res.json();
+        const j = data.job;
+        if (j) {
+          if (j.status === "completed" && j.candidate_clips && j.candidate_clips.length > 0) {
+            setAnalysis({
+              video_url: j.video_url,
+              source_type: j.source_type,
+              video_id: j.video_id,
+              title: j.title,
+              author: j.author,
+              duration: j.duration,
+              duration_formatted: `${Math.floor(j.duration / 60)}:${Math.floor(j.duration % 60).toString().padStart(2, "0")}`,
+              resolution: "1920x1080",
+              thumbnail_url: j.thumbnail_url,
+              transcript_available: (j.transcript_cues || []).length > 0,
+              transcript_cues: j.transcript_cues,
+              candidate_clips: j.candidate_clips,
+              analyzed_at: j.completed_at || j.created_at,
+            });
+            setCandidateClips(j.candidate_clips);
+            setActiveEditorClip(j.candidate_clips[0]);
+            setVideoUrl(j.video_url);
+          } else if (
+            j.status !== "completed" &&
+            j.status !== "failed" &&
+            j.status !== "cancelled"
+          ) {
+            // Resume live polling for ongoing analysis job
+            setIsAnalyzing(true);
+            setActiveJobId(j.id);
+            setActiveJobProgress(j.progress || 10);
+            setActiveJobStage(j.current_stage || "fetching");
+            setActiveJobStageLabel(j.stage_label || "Analyzing video...");
+            pollAnalysisJob(j.id);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to restore latest analysis:", err);
+    }
+  }
+
+  function pollAnalysisJob(jobId: string) {
+    if (analysisPollRef.current) clearInterval(analysisPollRef.current);
+
+    analysisPollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/clipper/analysis/${jobId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const job = data.job;
+        if (!job) return;
+
+        setActiveJobProgress(job.progress || 0);
+        setActiveJobStage(job.current_stage || "fetching");
+        setActiveJobStageLabel(job.stage_label || "");
+        setEstimatedSecondsRemaining(job.estimated_seconds_remaining || 0);
+
+        if (job.status === "completed") {
+          clearInterval(analysisPollRef.current!);
+          setIsAnalyzing(false);
+          setActiveJobId(null);
+
+          const analysisRes: VideoAnalysisResult = {
+            video_url: job.video_url,
+            source_type: job.source_type,
+            video_id: job.video_id,
+            title: job.title,
+            author: job.author,
+            duration: job.duration,
+            duration_formatted: `${Math.floor(job.duration / 60)}:${Math.floor(job.duration % 60).toString().padStart(2, "0")}`,
+            resolution: "1920x1080",
+            thumbnail_url: job.thumbnail_url,
+            transcript_available: (job.transcript_cues || []).length > 0,
+            transcript_cues: job.transcript_cues,
+            candidate_clips: job.candidate_clips || [],
+            analyzed_at: job.completed_at || new Date().toISOString(),
+          };
+
+          setAnalysis(analysisRes);
+          const clips = job.candidate_clips || [];
+          setCandidateClips(clips);
+          if (clips.length > 0) {
+            setActiveEditorClip(clips[0]);
+          }
+          setActiveTab("moments");
+        } else if (job.status === "failed") {
+          clearInterval(analysisPollRef.current!);
+          setIsAnalyzing(false);
+          setActiveJobId(null);
+          setAnalysisError(job.error_message || "Video analysis failed.");
+        } else if (job.status === "cancelled") {
+          clearInterval(analysisPollRef.current!);
+          setIsAnalyzing(false);
+          setActiveJobId(null);
+          setAnalysisError("Video analysis was cancelled.");
+        }
+      } catch (err) {
+        console.warn("Analysis polling error:", err);
+      }
+    }, 1200);
+  }
+
+  async function handleCancelAnalysis() {
+    if (!activeJobId) return;
+    try {
+      if (analysisPollRef.current) clearInterval(analysisPollRef.current);
+      await fetch(`/api/clipper/analysis/${activeJobId}`, { method: "DELETE" });
+      setIsAnalyzing(false);
+      setActiveJobId(null);
+      setAnalysisStep("");
+    } catch {}
+  }
 
   async function loadUserClips() {
     setLoadingMyClips(true);
@@ -183,7 +313,7 @@ export default function VideoClipperPage() {
     }
   }
 
-  // 1. Ingest Video & Trigger AI Analysis
+  // 1. Ingest Video & Trigger Full Video AI Analysis
   async function handleAnalyzeVideo(e?: React.FormEvent) {
     if (e) e.preventDefault();
     setAnalysisError(null);
@@ -196,24 +326,15 @@ export default function VideoClipperPage() {
     }
 
     setIsAnalyzing(true);
-    setAnalysisStep("1/5: Ingesting video telemetry & duration...");
+    setActiveJobProgress(5);
+    setActiveJobStage("fetching");
+    setActiveJobStageLabel("1/8: Ingesting & validating source video...");
+    setEstimatedSecondsRemaining(35);
 
     const effectiveClipCount =
       customClipCount && Number(customClipCount) > 0 ? Number(customClipCount) : clipCount;
 
     try {
-      setTimeout(() => {
-        setAnalysisStep("2/5: Extracting audio track & speech transcription...");
-      }, 1500);
-
-      setTimeout(() => {
-        setAnalysisStep("3/5: Detecting sentence boundaries & visual scene peaks...");
-      }, 3500);
-
-      setTimeout(() => {
-        setAnalysisStep("4/5: Computing virality scores (Hook, Emotional, Value)...");
-      }, 5500);
-
       const res = await fetch("/api/clipper/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -230,29 +351,33 @@ export default function VideoClipperPage() {
       const data = await res.json();
 
       if (!res.ok || data.error) {
-        throw new Error(data.error || "Failed to analyze video.");
+        throw new Error(data.error || "Failed to initialize video analysis.");
       }
 
-      setAnalysisStep("5/5: Finalizing candidate moments ranking...");
-      setAnalysis(data.analysis);
-      const clips: ViralCandidateClip[] = data.analysis.candidate_clips || [];
-      setCandidateClips(clips);
-
-      if (clips.length > 0) {
-        setActiveEditorClip(clips[0]);
+      if (data.jobId) {
+        setActiveJobId(data.jobId);
+        setActiveJobProgress(data.progress || 10);
+        setActiveJobStage(data.current_stage || "fetching");
+        setActiveJobStageLabel(data.stage_label || "1/8: Ingesting & validating source video...");
+        pollAnalysisJob(data.jobId);
+      } else if (data.analysis) {
+        // Synchronous fallback result
+        setAnalysis(data.analysis);
+        const clips: ViralCandidateClip[] = data.analysis.candidate_clips || [];
+        setCandidateClips(clips);
+        if (clips.length > 0) {
+          setActiveEditorClip(clips[0]);
+        }
+        setIsAnalyzing(false);
+        setActiveTab("moments");
       }
-
-      // Switch to Moments tab automatically
-      setActiveTab("moments");
     } catch (err: any) {
       console.error("Analysis error:", err);
       setAnalysisError(
         err.message ||
           "Analysis failed. If this is a restricted URL, try uploading the MP4/MOV file directly."
       );
-    } finally {
       setIsAnalyzing(false);
-      setAnalysisStep("");
     }
   }
 
@@ -873,17 +998,19 @@ export default function VideoClipperPage() {
                   {/* Preferred Clip Duration */}
                   <div className="space-y-1.5">
                     <Label className="text-xs font-semibold">Clip Duration</Label>
-                    <div className="grid grid-cols-3 gap-1.5">
+                    <div className="grid grid-cols-5 gap-1">
                       {[
+                        { id: "15-30", label: "15–30s" },
                         { id: "30-60", label: "30–60s" },
                         { id: "60-90", label: "60–90s" },
                         { id: "90-180", label: "90–180s" },
+                        { id: "custom", label: "Custom" },
                       ].map((preset) => (
                         <button
                           key={preset.id}
                           type="button"
                           onClick={() => setDurationPreset(preset.id as ClipDurationPreset)}
-                          className={`py-2 text-xs font-semibold rounded-lg border transition-all ${
+                          className={`py-2 text-[11px] font-semibold rounded-lg border transition-all ${
                             durationPreset === preset.id
                               ? "bg-primary text-primary-foreground border-primary shadow-sm"
                               : "bg-background hover:bg-muted text-muted-foreground"
@@ -953,26 +1080,87 @@ export default function VideoClipperPage() {
                 </div>
               </div>
 
-              {/* Analysis Stepper Card */}
+              {/* Real Full Video Analysis Progress Pipeline (8 Stages) */}
               {isAnalyzing && (
-                <Card className="border border-amber-300 bg-amber-50/70 dark:bg-amber-950/20 shadow-sm animate-pulse">
-                  <CardContent className="py-5 flex items-center justify-between">
+                <div className="border border-primary/30 rounded-2xl bg-primary/[0.03] p-5 space-y-4 shadow-sm animate-pulse-subtle">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
-                      <Loader2 className="h-6 w-6 text-amber-600 animate-spin" />
+                      <div className="h-10 w-10 rounded-xl bg-primary text-primary-foreground flex items-center justify-center shadow-md">
+                        <Sparkles className="h-5 w-5 animate-spin" />
+                      </div>
                       <div>
-                        <h3 className="text-sm font-bold text-foreground">
-                          AI Video Analysis in Progress...
-                        </h3>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {analysisStep || "Scanning video for viral moments..."}
+                        <h4 className="font-bold text-sm text-foreground flex items-center gap-2">
+                          Full Video AI Analysis Pipeline
+                          <Badge className="bg-primary text-primary-foreground text-[10px] h-5 px-2">
+                            {activeJobProgress}% Complete
+                          </Badge>
+                        </h4>
+                        <p className="text-xs text-muted-foreground mt-0.5 font-medium">
+                          {activeJobStageLabel || "Processing complete video timeline..."}
                         </p>
                       </div>
                     </div>
-                    <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-300 font-bold text-xs">
-                      OpusClip AI Engine
-                    </Badge>
-                  </CardContent>
-                </Card>
+
+                    <div className="flex items-center gap-3">
+                      {estimatedSecondsRemaining > 0 && (
+                        <span className="text-xs text-muted-foreground flex items-center gap-1 bg-background px-2.5 py-1 rounded-lg border">
+                          <Clock className="h-3.5 w-3.5 text-primary" />
+                          ~{estimatedSecondsRemaining}s left
+                        </span>
+                      )}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleCancelAnalysis}
+                        className="text-xs h-8 text-rose-600 hover:bg-rose-50 border-rose-200"
+                      >
+                        <X className="h-3.5 w-3.5 mr-1" />
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div className="w-full bg-muted/60 rounded-full h-2.5 overflow-hidden border">
+                    <div
+                      className="bg-primary h-2.5 rounded-full transition-all duration-500 ease-out shadow-sm"
+                      style={{ width: `${Math.max(5, activeJobProgress)}%` }}
+                    />
+                  </div>
+
+                  {/* 8 Pipeline Stages */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-1.5 pt-1 text-[10px]">
+                    {[
+                      { id: "fetching", label: "1. Ingest Video" },
+                      { id: "extracting_audio", label: "2. Audio Stream" },
+                      { id: "transcribing", label: "3. Transcribe" },
+                      { id: "detecting_scenes", label: "4. Scene Cuts" },
+                      { id: "analyzing_visuals", label: "5. Visual Pacing" },
+                      { id: "finding_moments", label: "6. Viral Hooks" },
+                      { id: "ranking_clips", label: "7. Ranking" },
+                      { id: "completed", label: "8. Ready" },
+                    ].map((st, idx) => {
+                      const isPast =
+                        activeJobProgress >= (idx + 1) * 12.5 || activeJobStage === st.id;
+                      const isCurrent = activeJobStage === st.id;
+                      return (
+                        <div
+                          key={st.id}
+                          className={`p-1.5 rounded-lg border text-center transition-all ${
+                            isCurrent
+                              ? "bg-primary text-primary-foreground font-bold border-primary shadow-sm ring-2 ring-primary/20"
+                              : isPast
+                              ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-300 font-medium"
+                              : "bg-background text-muted-foreground opacity-60"
+                          }`}
+                        >
+                          {st.label}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
 
               {/* Error Notice */}
@@ -1040,8 +1228,35 @@ export default function VideoClipperPage() {
                     </div>
                   </div>
 
-                  {/* Batch Action Buttons */}
-                  <div className="flex items-center gap-2">
+                  {/* Batch & Re-Analyze Action Buttons */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setActiveTab("create");
+                      }}
+                      className="text-xs h-11 px-4 gap-1.5 border-dashed"
+                      title="Re-run analysis on the full video with updated parameters"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" />
+                      Re-Analyze Full Video
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const allSelected = candidateClips.every((c) => c.selected);
+                        setCandidateClips((prev) =>
+                          prev.map((c) => ({ ...c, selected: !allSelected }))
+                        );
+                      }}
+                      className="text-xs h-11 px-3 text-muted-foreground"
+                    >
+                      {candidateClips.every((c) => c.selected) ? "Deselect All" : "Select All"}
+                    </Button>
+
                     <Button
                       onClick={handleGenerateBatch}
                       disabled={isGeneratingBatch || selectedCount === 0}

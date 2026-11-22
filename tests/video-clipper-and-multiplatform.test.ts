@@ -43,6 +43,19 @@ import {
   cancelClipRenderJob,
 } from "../lib/clipper/render-jobs";
 import { executeRenderJob } from "../lib/clipper/render-manager";
+import {
+  extractAudioFromVideo,
+  detectVideoSceneCuts,
+} from "../lib/clipper/ffmpeg-engine";
+import { transcribeAudioFile } from "../lib/clipper/audio-transcriber";
+import {
+  createAnalysisJob,
+  updateAnalysisJob,
+  getAnalysisJob,
+  getLatestUserAnalysis,
+  cancelAnalysisJob,
+} from "../lib/clipper/analysis-jobs";
+import { executeFullVideoAnalysis } from "../lib/clipper/full-video-analyzer";
 import * as os from "os";
 
 describe("Video Clipper Studio & Multi-Platform Publishing", () => {
@@ -649,6 +662,121 @@ describe("Video Clipper Studio & Multi-Platform Publishing", () => {
       // Verify temporary directory was cleaned up
       const jobDir = path.join(getRenderBaseDir(), job.id);
       assert.strictEqual(fs.existsSync(jobDir), false, "Temporary job directory must be deleted after render");
+    });
+  });
+
+  describe("10. Full Video AI Analysis Pipeline, Audio Extraction, Scene Detection & Persistence", () => {
+    test("extractAudioFromVideo extracts valid audio file from video", async () => {
+      const outAudio = path.join(os.tmpdir(), `test_audio_${Date.now()}.mp3`);
+      try {
+        const resultPath = await extractAudioFromVideo(testVideoPath, outAudio);
+        assert.ok(fs.existsSync(resultPath));
+        const stat = fs.statSync(resultPath);
+        assert.ok(stat.size > 0, "Extracted audio file must have non-zero size");
+      } finally {
+        if (fs.existsSync(outAudio)) fs.unlinkSync(outAudio);
+      }
+    });
+
+    test("detectVideoSceneCuts returns scene change timestamps throughout the video", async () => {
+      const scenes = await detectVideoSceneCuts(testVideoPath, 0.35, 10);
+      assert.ok(Array.isArray(scenes));
+      assert.ok(scenes.length > 0, "Should detect at least 1 visual scene or pacing interval");
+      assert.ok(scenes[0].timestamp >= 0);
+      assert.ok(typeof scenes[0].score === "number");
+    });
+
+    test("transcribeAudioFile produces structured transcript cues across complete duration", async () => {
+      const outAudio = path.join(os.tmpdir(), `test_tx_${Date.now()}.mp3`);
+      try {
+        await extractAudioFromVideo(testVideoPath, outAudio);
+        const result = await transcribeAudioFile(outAudio, testUserId, { totalDuration: 5 });
+        assert.ok(result);
+        assert.ok(result.cues.length > 0, "Transcription must yield structured cues");
+        assert.strictEqual(typeof result.transcriptText, "string");
+        assert.ok(result.cues[0].start >= 0);
+        assert.ok(result.cues[0].end > result.cues[0].start);
+      } finally {
+        if (fs.existsSync(outAudio)) fs.unlinkSync(outAudio);
+      }
+    });
+
+    test("createAnalysisJob, updateAnalysisJob and getLatestUserAnalysis persist analysis state", async () => {
+      const job = await createAnalysisJob({
+        userId: testUserId,
+        videoUrl: testVideoPath,
+        sourceType: "upload",
+        title: "Test Full Video",
+        duration: 300,
+        clipCount: 4,
+        durationPreset: "15-30",
+        targetPlatform: "both",
+      });
+
+      assert.ok(job);
+      assert.ok(job.id);
+      assert.strictEqual(job.status, "queued");
+      assert.strictEqual(job.duration_preset, "15-30");
+
+      // Progress through stages
+      const updated = await updateAnalysisJob(job.id, {
+        status: "transcribing",
+        progress: 40,
+        current_stage: "transcribing",
+        stage_label: "3/8: Transcribing audio with speech-to-text...",
+      });
+      assert.strictEqual(updated?.status, "transcribing");
+      assert.strictEqual(updated?.progress, 40);
+
+      // Verify getLatestUserAnalysis restores it
+      const latest = await getLatestUserAnalysis(testUserId);
+      assert.ok(latest);
+      assert.strictEqual(latest?.id, job.id);
+      assert.strictEqual(latest?.status, "transcribing");
+    });
+
+    test("executeFullVideoAnalysis completes all 8 stages and returns diverse moments across complete timeline", async () => {
+      const job = await createAnalysisJob({
+        userId: testUserId,
+        videoUrl: testVideoPath,
+        sourceType: "upload",
+        title: "Complete Video Analysis Run",
+        duration: 4,
+        clipCount: 3,
+        durationPreset: "15-30",
+        targetPlatform: "both",
+      });
+
+      const completed = await executeFullVideoAnalysis(job.id, {
+        videoUrl: testVideoPath,
+        userId: testUserId,
+        sourceType: "upload",
+        title: "Complete Video Analysis Run",
+        duration: 4,
+        clipCount: 3,
+        durationPreset: "15-30",
+        targetPlatform: "both",
+      });
+
+      assert.strictEqual(completed.status, "completed");
+      assert.strictEqual(completed.progress, 100);
+      assert.strictEqual(completed.current_stage, "completed");
+      assert.ok(completed.candidate_clips && completed.candidate_clips.length > 0);
+
+      // Verify candidate clip properties
+      const clip = completed.candidate_clips[0];
+      assert.ok(clip.title);
+      assert.ok(clip.viral_score >= 0 && clip.viral_score <= 100);
+      assert.ok(clip.virality_breakdown);
+      assert.ok(clip.virality_breakdown.hook >= 0);
+      assert.ok(clip.category);
+      assert.ok(clip.reason);
+      assert.ok(clip.title_options && clip.title_options.length === 5);
+      assert.ok(clip.hook_options && clip.hook_options.length === 3);
+
+      // Verify temporary analysis files in os.tmpdir() were cleaned up
+      const tempDir = path.join(os.tmpdir(), "pagepulse-analysis", job.id);
+      assert.strictEqual(fs.existsSync(tempDir), false, "Temporary analysis directory must be wiped after completion");
     });
   });
 });
