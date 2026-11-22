@@ -57,6 +57,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SendToQueueModal } from "@/components/clipper/send-to-queue-modal";
+import { UniversalVideoPlayer } from "@/components/clipper/universal-video-player";
 import {
   AspectRatio,
   CropPosition,
@@ -145,7 +146,6 @@ export default function VideoClipperPage() {
   const [activeEditorClip, setActiveEditorClip] = useState<ViralCandidateClip | null>(null);
   const [editorPlaying, setEditorPlaying] = useState<boolean>(false);
   const [editorCurrentTime, setEditorCurrentTime] = useState<number>(0);
-  const editorVideoRef = useRef<HTMLVideoElement | null>(null);
   const [isRenderingEditorClip, setIsRenderingEditorClip] = useState<boolean>(false);
   const [editorRenderStep, setEditorRenderStep] = useState<string>("");
   const [editorRenderSuccess, setEditorRenderSuccess] = useState<string | null>(null);
@@ -1517,30 +1517,44 @@ export default function VideoClipperPage() {
 
                         {/* Video Player Preview for this candidate */}
                         {isPreviewing ? (
-                          <div className="relative aspect-[9/16] max-h-56 w-full bg-black rounded-lg overflow-hidden border">
-                            <video
-                              src={`${analysis.video_url}#t=${clip.start_time},${clip.end_time}`}
-                              controls
-                              autoPlay
-                              loop
-                              playsInline
-                              className="w-full h-full object-contain"
+                          <div className="relative w-full bg-black rounded-xl overflow-hidden border shadow-lg">
+                            <div className="absolute top-2 right-2 z-30">
+                              <button
+                                type="button"
+                                onClick={() => setPreviewingClip(null)}
+                                className="bg-black/80 hover:bg-black text-white rounded-full p-1 shadow-md transition-colors"
+                                title="Close Preview"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                            <UniversalVideoPlayer
+                              videoUrl={uploadedFile?.url || analysis?.video_url || videoUrl}
+                              startTime={clip.start_time}
+                              endTime={clip.end_time}
+                              aspectRatio={clip.aspect_ratio || "9:16"}
+                              reframingMode={clip.reframing_mode || "blurred_backdrop"}
+                              hookText={clip.hook}
+                              subtitleText={clip.title}
+                              subtitleStyle={clip.subtitle_style || "hormozi"}
+                              autoPlay={true}
+                              loop={true}
+                              showCustomControls={true}
+                              className="w-full max-h-72"
                             />
-                            <button
-                              onClick={() => setPreviewingClip(null)}
-                              className="absolute top-2 right-2 bg-black/70 text-white rounded-full p-1"
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </button>
+                            <div className="p-2 bg-muted/30 border-t flex items-center justify-between text-[11px] font-medium">
+                              <span className="text-muted-foreground">Clip: {clip.start_formatted} – {clip.end_formatted}</span>
+                              <span className="text-primary font-bold">{(clip.end_time - clip.start_time).toFixed(1)}s</span>
+                            </div>
                           </div>
                         ) : (
                           <button
                             type="button"
                             onClick={() => setPreviewingClip(clip)}
-                            className="w-full py-2 bg-muted/60 hover:bg-muted text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors border"
+                            className="w-full py-2 bg-primary/10 hover:bg-primary/20 text-primary text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors border border-primary/20"
                           >
                             <Play className="h-3.5 w-3.5 fill-current" />
-                            Preview Moment Interval
+                            Preview Moment Interval ({clip.start_formatted} – {clip.end_formatted})
                           </button>
                         )}
 
@@ -1713,38 +1727,45 @@ export default function VideoClipperPage() {
             <CardContent className="p-6">
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 {/* Left 5 Cols: Video Player Preview */}
-                <div className="lg:col-span-5 flex flex-col items-center">
-                  <div className="relative w-full aspect-[9/16] max-h-[520px] bg-black rounded-2xl overflow-hidden shadow-xl border flex items-center justify-center">
-                    <video
-                      ref={editorVideoRef}
-                      src={`${analysis?.video_url || uploadedFile?.url || videoUrl}#t=${activeEditorClip.start_time},${activeEditorClip.end_time}`}
-                      controls
-                      playsInline
-                      className="w-full h-full object-contain"
+                <div className="lg:col-span-5 flex flex-col items-center justify-start gap-3">
+                  <div className="w-full flex items-center justify-between px-1">
+                    <Badge variant="outline" className="text-xs font-bold border-primary text-primary flex items-center gap-1.5 py-1">
+                      <Sparkles className="h-3 w-3" />
+                      {activeEditorClip.aspect_ratio || "9:16"}{" "}
+                      {(activeEditorClip.aspect_ratio === "16:9")
+                        ? "Landscape (1920×1080)"
+                        : (activeEditorClip.aspect_ratio === "1:1")
+                        ? "Square (1080×1080)"
+                        : "Vertical (1080×1920)"}
+                    </Badge>
+                    <span className="text-xs font-semibold text-muted-foreground">
+                      {(activeEditorClip.end_time - activeEditorClip.start_time).toFixed(1)}s Duration
+                    </span>
+                  </div>
+
+                  <div className="w-full flex items-center justify-center">
+                    <UniversalVideoPlayer
+                      videoUrl={uploadedFile?.url || analysis?.video_url || videoUrl}
+                      startTime={activeEditorClip.start_time}
+                      endTime={activeEditorClip.end_time}
+                      aspectRatio={activeEditorClip.aspect_ratio || "9:16"}
+                      reframingMode={activeEditorClip.reframing_mode || "blurred_backdrop"}
+                      hookText={activeEditorClip.hook}
+                      subtitleText={activeEditorClip.title}
+                      subtitleStyle={activeEditorClip.subtitle_style || "hormozi"}
+                      watermarkText={activeEditorClip.watermark_text}
+                      watermarkPosition={activeEditorClip.watermark_position || "top_right"}
+                      watermarkOpacity={activeEditorClip.watermark_opacity ?? 0.7}
+                      autoPlay={true}
+                      loop={true}
+                      showCustomControls={true}
+                      className="w-full max-h-[520px]"
                     />
+                  </div>
 
-                    {/* Simulated Overlays Preview */}
-                    {activeEditorClip.hook && (
-                      <div className="absolute top-8 px-3 py-1 bg-black/80 border border-yellow-400 text-yellow-300 font-extrabold text-xs text-center rounded shadow-lg max-w-[85%] uppercase">
-                        {activeEditorClip.hook}
-                      </div>
-                    )}
-
-                    {activeEditorClip.subtitle_style !== "none" && (
-                      <div
-                        className={`absolute bottom-12 px-4 py-1.5 text-center font-black tracking-wide max-w-[90%] rounded ${
-                          activeEditorClip.subtitle_style === "hormozi"
-                            ? "bg-black/80 text-yellow-400 border-2 border-yellow-400 text-sm uppercase shadow-2xl"
-                            : activeEditorClip.subtitle_style === "karaoke"
-                            ? "bg-black/70 text-cyan-400 text-xs shadow-lg"
-                            : activeEditorClip.subtitle_style === "clean_minimal"
-                            ? "bg-black/75 text-white text-xs"
-                            : "bg-black/70 text-yellow-300 text-xs"
-                        }`}
-                      >
-                        {activeEditorClip.title}
-                      </div>
-                    )}
+                  <div className="w-full p-2.5 bg-muted/30 rounded-xl border text-[11px] text-muted-foreground flex items-center justify-between">
+                    <span>Framing: <strong className="text-foreground font-semibold">{activeEditorClip.reframing_mode || "blurred_backdrop"}</strong></span>
+                    <span>Style: <strong className="text-foreground font-semibold">{activeEditorClip.subtitle_style || "hormozi"}</strong></span>
                   </div>
                 </div>
 
@@ -1787,13 +1808,69 @@ export default function VideoClipperPage() {
                     </div>
                   )}
 
+                  {/* Target Platform & Aspect Ratio Selector */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                      <Tv className="h-3.5 w-3.5 text-primary" />
+                      Target Platform & Aspect Ratio
+                    </Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        {
+                          id: "9:16" as AspectRatio,
+                          label: "9:16 Vertical",
+                          sub: "Reels / Shorts / TikTok",
+                          res: "1080 × 1920",
+                          icon: "📱",
+                        },
+                        {
+                          id: "16:9" as AspectRatio,
+                          label: "16:9 Landscape",
+                          sub: "YouTube Standard",
+                          res: "1920 × 1080",
+                          icon: "🖥️",
+                        },
+                        {
+                          id: "1:1" as AspectRatio,
+                          label: "1:1 Square",
+                          sub: "FB & IG Feed Posts",
+                          res: "1080 × 1080",
+                          icon: "🔲",
+                        },
+                      ].map((ar) => (
+                        <button
+                          key={ar.id}
+                          type="button"
+                          onClick={() =>
+                            setActiveEditorClip({
+                              ...activeEditorClip,
+                              aspect_ratio: ar.id,
+                            })
+                          }
+                          className={`p-3 rounded-xl border text-left transition-all ${
+                            (activeEditorClip.aspect_ratio || "9:16") === ar.id
+                              ? "bg-primary text-primary-foreground border-primary shadow-md ring-2 ring-primary/30"
+                              : "bg-background hover:bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-base">{ar.icon}</span>
+                            <span className="text-[10px] font-bold opacity-80">{ar.res}</span>
+                          </div>
+                          <span className="font-bold text-xs block">{ar.label}</span>
+                          <span className="text-[10px] opacity-80 block truncate">{ar.sub}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* Reframing Layout Selector */}
                   <div className="space-y-2">
                     <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                       <Layout className="h-3.5 w-3.5 text-primary" />
-                      Automatic Vertical Reframing Mode
+                      Video Cropping & Reframing Mode
                     </Label>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                       {[
                         {
                           id: "blurred_backdrop",
@@ -1803,17 +1880,22 @@ export default function VideoClipperPage() {
                         {
                           id: "auto_center",
                           label: "Smart Center Crop",
-                          sub: "Active Speaker Focus",
+                          sub: "Focal Area Crop",
+                        },
+                        {
+                          id: "fit_contain",
+                          label: "Fit (Letterbox)",
+                          sub: "Full Frame with Bars",
                         },
                         {
                           id: "split_screen",
                           label: "Split Screen",
-                          sub: "Top / Bottom View",
+                          sub: "Top / Bottom Stack",
                         },
                         {
                           id: "top_crop",
                           label: "Top Focus",
-                          sub: "Focus on Top Third",
+                          sub: "Upper Third Focus",
                         },
                       ].map((mode) => (
                         <button
@@ -1831,8 +1913,8 @@ export default function VideoClipperPage() {
                               : "bg-background hover:bg-muted text-muted-foreground"
                           }`}
                         >
-                          <span className="font-bold text-xs block">{mode.label}</span>
-                          <span className="text-[10px] opacity-80 block">{mode.sub}</span>
+                          <span className="font-bold text-xs block leading-tight">{mode.label}</span>
+                          <span className="text-[10px] opacity-80 block truncate mt-0.5">{mode.sub}</span>
                         </button>
                       ))}
                     </div>
@@ -1969,47 +2051,201 @@ export default function VideoClipperPage() {
                     </div>
                   </div>
 
-                  {/* Start / End Timestamp Fine-Tuning */}
-                  <div className="p-3 bg-muted/30 rounded-xl border space-y-2">
-                    <Label className="text-xs font-bold text-foreground">Timeline Trimming</Label>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <span className="text-[11px] text-muted-foreground block mb-1">
-                          Start Time (seconds):
-                        </span>
+                  {/* Start / End Timestamp Fine-Tuning with Precision Nudges */}
+                  <div className="p-4 bg-muted/30 rounded-xl border space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5 text-primary" />
+                        Timeline Trimming & Nudge Controls
+                      </Label>
+                      <Badge variant="secondary" className="font-mono text-xs">
+                        Length: {(activeEditorClip.end_time - activeEditorClip.start_time).toFixed(1)}s
+                      </Badge>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Start Time Control */}
+                      <div className="p-2.5 bg-background rounded-lg border space-y-1.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-semibold text-muted-foreground">Start Time</span>
+                          <span className="font-mono font-bold text-foreground">{activeEditorClip.start_time.toFixed(1)}s</span>
+                        </div>
                         <Input
                           type="number"
-                          step="0.5"
+                          step="0.1"
+                          min="0"
                           value={activeEditorClip.start_time}
                           onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setActiveEditorClip({
-                              ...activeEditorClip,
-                              start_time: val,
-                              duration: Math.round(activeEditorClip.end_time - val),
-                            });
+                            const val = Math.max(0, Number(e.target.value));
+                            if (val < activeEditorClip.end_time) {
+                              setActiveEditorClip({
+                                ...activeEditorClip,
+                                start_time: Number(val.toFixed(1)),
+                                duration: Math.round(activeEditorClip.end_time - val),
+                                start_formatted: new Date(val * 1000).toISOString().substring(14, 19),
+                              });
+                            }
                           }}
                           className="h-8 text-xs font-semibold"
                         />
+                        <div className="flex items-center justify-between gap-1 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = Math.max(0, activeEditorClip.start_time - 1);
+                              setActiveEditorClip({
+                                ...activeEditorClip,
+                                start_time: Number(next.toFixed(1)),
+                                duration: Math.round(activeEditorClip.end_time - next),
+                                start_formatted: new Date(next * 1000).toISOString().substring(14, 19),
+                              });
+                            }}
+                            className="px-2 py-0.5 text-[10px] font-bold bg-muted hover:bg-muted/80 rounded border"
+                            title="Start 1s earlier"
+                          >
+                            -1s
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = Math.max(0, activeEditorClip.start_time - 0.1);
+                              setActiveEditorClip({
+                                ...activeEditorClip,
+                                start_time: Number(next.toFixed(1)),
+                                duration: Math.round(activeEditorClip.end_time - next),
+                                start_formatted: new Date(next * 1000).toISOString().substring(14, 19),
+                              });
+                            }}
+                            className="px-2 py-0.5 text-[10px] font-bold bg-muted hover:bg-muted/80 rounded border"
+                            title="Start 0.1s earlier"
+                          >
+                            -0.1s
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = Math.min(activeEditorClip.end_time - 0.5, activeEditorClip.start_time + 0.1);
+                              setActiveEditorClip({
+                                ...activeEditorClip,
+                                start_time: Number(next.toFixed(1)),
+                                duration: Math.round(activeEditorClip.end_time - next),
+                                start_formatted: new Date(next * 1000).toISOString().substring(14, 19),
+                              });
+                            }}
+                            className="px-2 py-0.5 text-[10px] font-bold bg-muted hover:bg-muted/80 rounded border"
+                            title="Start 0.1s later"
+                          >
+                            +0.1s
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = Math.min(activeEditorClip.end_time - 1, activeEditorClip.start_time + 1);
+                              setActiveEditorClip({
+                                ...activeEditorClip,
+                                start_time: Number(next.toFixed(1)),
+                                duration: Math.round(activeEditorClip.end_time - next),
+                                start_formatted: new Date(next * 1000).toISOString().substring(14, 19),
+                              });
+                            }}
+                            className="px-2 py-0.5 text-[10px] font-bold bg-muted hover:bg-muted/80 rounded border"
+                            title="Start 1s later"
+                          >
+                            +1s
+                          </button>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-[11px] text-muted-foreground block mb-1">
-                          End Time (seconds):
-                        </span>
+
+                      {/* End Time Control */}
+                      <div className="p-2.5 bg-background rounded-lg border space-y-1.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-semibold text-muted-foreground">End Time</span>
+                          <span className="font-mono font-bold text-foreground">{activeEditorClip.end_time.toFixed(1)}s</span>
+                        </div>
                         <Input
                           type="number"
-                          step="0.5"
+                          step="0.1"
+                          min={activeEditorClip.start_time + 0.5}
                           value={activeEditorClip.end_time}
                           onChange={(e) => {
                             const val = Number(e.target.value);
-                            setActiveEditorClip({
-                              ...activeEditorClip,
-                              end_time: val,
-                              duration: Math.round(val - activeEditorClip.start_time),
-                            });
+                            if (val > activeEditorClip.start_time) {
+                              setActiveEditorClip({
+                                ...activeEditorClip,
+                                end_time: Number(val.toFixed(1)),
+                                duration: Math.round(val - activeEditorClip.start_time),
+                                end_formatted: new Date(val * 1000).toISOString().substring(14, 19),
+                              });
+                            }
                           }}
                           className="h-8 text-xs font-semibold"
                         />
+                        <div className="flex items-center justify-between gap-1 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = Math.max(activeEditorClip.start_time + 0.5, activeEditorClip.end_time - 1);
+                              setActiveEditorClip({
+                                ...activeEditorClip,
+                                end_time: Number(next.toFixed(1)),
+                                duration: Math.round(next - activeEditorClip.start_time),
+                                end_formatted: new Date(next * 1000).toISOString().substring(14, 19),
+                              });
+                            }}
+                            className="px-2 py-0.5 text-[10px] font-bold bg-muted hover:bg-muted/80 rounded border"
+                            title="End 1s earlier"
+                          >
+                            -1s
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = Math.max(activeEditorClip.start_time + 0.5, activeEditorClip.end_time - 0.1);
+                              setActiveEditorClip({
+                                ...activeEditorClip,
+                                end_time: Number(next.toFixed(1)),
+                                duration: Math.round(next - activeEditorClip.start_time),
+                                end_formatted: new Date(next * 1000).toISOString().substring(14, 19),
+                              });
+                            }}
+                            className="px-2 py-0.5 text-[10px] font-bold bg-muted hover:bg-muted/80 rounded border"
+                            title="End 0.1s earlier"
+                          >
+                            -0.1s
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = activeEditorClip.end_time + 0.1;
+                              setActiveEditorClip({
+                                ...activeEditorClip,
+                                end_time: Number(next.toFixed(1)),
+                                duration: Math.round(next - activeEditorClip.start_time),
+                                end_formatted: new Date(next * 1000).toISOString().substring(14, 19),
+                              });
+                            }}
+                            className="px-2 py-0.5 text-[10px] font-bold bg-muted hover:bg-muted/80 rounded border"
+                            title="End 0.1s later"
+                          >
+                            +0.1s
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = activeEditorClip.end_time + 1;
+                              setActiveEditorClip({
+                                ...activeEditorClip,
+                                end_time: Number(next.toFixed(1)),
+                                duration: Math.round(next - activeEditorClip.start_time),
+                                end_formatted: new Date(next * 1000).toISOString().substring(14, 19),
+                              });
+                            }}
+                            className="px-2 py-0.5 text-[10px] font-bold bg-muted hover:bg-muted/80 rounded border"
+                            title="End 1s later"
+                          >
+                            +1s
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -2074,15 +2310,19 @@ export default function VideoClipperPage() {
                   key={clip.id}
                   className="shadow-sm border rounded-2xl overflow-hidden flex flex-col justify-between"
                 >
-                  <div className="relative aspect-[9/16] max-h-72 bg-black flex items-center justify-center">
-                    <video
-                      src={clip.exported_url || clip.source_video_url}
-                      controls
-                      playsInline
-                      preload="metadata"
-                      className="w-full h-full object-contain"
+                  <div className={`relative ${clip.aspect_ratio === "16:9" ? "aspect-video" : clip.aspect_ratio === "1:1" ? "aspect-square" : "aspect-[9/16]"} max-h-72 bg-black flex items-center justify-center overflow-hidden`}>
+                    <UniversalVideoPlayer
+                      videoUrl={clip.exported_url || clip.source_video_url}
+                      startTime={clip.start_time || 0}
+                      endTime={clip.end_time || (clip.start_time || 0) + (clip.duration || 30)}
+                      aspectRatio={clip.aspect_ratio || "9:16"}
+                      reframingMode={clip.reframing_mode || "blurred_backdrop"}
+                      autoPlay={false}
+                      loop={false}
+                      showCustomControls={true}
+                      className="w-full h-full"
                     />
-                    <div className="absolute top-2 right-2 flex items-center gap-1">
+                    <div className="absolute top-2 right-2 flex items-center gap-1 z-20 pointer-events-none">
                       <Badge className="bg-black/80 text-white text-[10px]">
                         {clip.aspect_ratio || "9:16"}
                       </Badge>

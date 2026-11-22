@@ -200,14 +200,20 @@ export async function renderVideoClip(
 
   let filterChain = "";
 
-  if (reframing === "blurred_backdrop" && options.aspectRatio === "9:16") {
+  if (reframing === "blurred_backdrop" && (options.aspectRatio === "9:16" || options.aspectRatio === "1:1")) {
     // OpusClip signature blurred background with sharp centered video
     filterChain = `split[main][bg];[bg]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight},boxblur=25:5[bgblur];[main]scale=${targetWidth}:-2:force_original_aspect_ratio=decrease[fg];[bgblur][fg]overlay=(W-w)/2:(H-h)/2`;
   } else if (reframing === "split_screen" && options.aspectRatio === "9:16") {
     const halfH = Math.floor(targetHeight / 2);
     filterChain = `split[top][bot];[top]scale=${targetWidth}:${halfH}:force_original_aspect_ratio=increase,crop=${targetWidth}:${halfH}[t];[bot]scale=${targetWidth}:${halfH}:force_original_aspect_ratio=increase,crop=${targetWidth}:${halfH},boxblur=15:3[b];[t][b]vstack`;
+  } else if (reframing === "fit_contain") {
+    // Original video fit with letterbox / pillarbox black bars
+    filterChain = `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2:black`;
+  } else if (options.aspectRatio === "16:9") {
+    // Landscape standard crop or scale
+    filterChain = `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight}:(in_w-${targetWidth})/2:(in_h-${targetHeight})/2`;
   } else {
-    // Smart center or directional crop
+    // Smart center or directional crop (center / top / bottom)
     filterChain = `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight}:(in_w-${targetWidth})/2:${cropY}`;
   }
 

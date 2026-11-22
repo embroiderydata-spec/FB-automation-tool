@@ -133,6 +133,46 @@ describe("Video Clipper Studio & Multi-Platform Publishing", () => {
       assert.strictEqual(probeOut.height, 1080);
     });
 
+    test("renderVideoClip crops to 16:9 landscape (1920x1080)", async () => {
+      const out16x9 = path.join(testDir, "output_16x9.mp4");
+      const result = await renderVideoClip({
+        inputPath: testVideoPath,
+        outputPath: out16x9,
+        startTime: 0.5,
+        duration: 1.5,
+        aspectRatio: "16:9",
+        cropPosition: "center",
+        resolution: "1080p",
+      });
+
+      assert.ok(fs.existsSync(out16x9));
+      assert.ok(result.sizeBytes > 0);
+
+      const probeOut = probeVideoFile(out16x9);
+      assert.strictEqual(probeOut.width, 1920);
+      assert.strictEqual(probeOut.height, 1080);
+    });
+
+    test("renderVideoClip renders with fit_contain letterbox reframing", async () => {
+      const outFit = path.join(testDir, "output_fit.mp4");
+      const result = await renderVideoClip({
+        inputPath: testVideoPath,
+        outputPath: outFit,
+        startTime: 0.5,
+        duration: 1.5,
+        aspectRatio: "9:16",
+        reframingMode: "fit_contain",
+        resolution: "1080p",
+      });
+
+      assert.ok(fs.existsSync(outFit));
+      assert.ok(result.sizeBytes > 0);
+
+      const probeOut = probeVideoFile(outFit);
+      assert.strictEqual(probeOut.width, 1080);
+      assert.strictEqual(probeOut.height, 1920);
+    });
+
     test("formatBytes formats file sizes correctly", () => {
       assert.strictEqual(formatBytes(15728640), "15.0 MB");
       assert.strictEqual(formatBytes(1048576), "1.0 MB");
@@ -608,6 +648,7 @@ describe("Video Clipper Studio & Multi-Platform Publishing", () => {
         duration: 3,
         aspect_ratio: "9:16",
         reframing_mode: "blurred_backdrop",
+        resolution: "1080p",
         subtitle_style: "hormozi",
       });
 
@@ -647,6 +688,7 @@ describe("Video Clipper Studio & Multi-Platform Publishing", () => {
         duration: 2.0,
         aspect_ratio: "9:16",
         reframing_mode: "blurred_backdrop",
+        resolution: "1080p",
         subtitle_style: "hormozi",
         subtitle_text: "PRODUCTION RENDER VERIFIED",
         hook_text: "WAIT TILL THE END 🔥",

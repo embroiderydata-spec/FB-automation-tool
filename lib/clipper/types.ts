@@ -26,6 +26,7 @@ export type ReframingMode =
   | "auto_center"
   | "blurred_backdrop"
   | "split_screen"
+  | "fit_contain"
   | "top_crop"
   | "bottom_crop";
 

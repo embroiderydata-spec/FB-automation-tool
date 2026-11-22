@@ -154,6 +154,9 @@ describe("Phase 2.3 Video Engine Test Suite", () => {
         scenes: [{ sceneOrder: 1, videoUrl: "s1.mp4", durationSeconds: 3.5 }],
         outputPath: "final.mp4",
         branding: {
+          brand_name: "Test Brand",
+          brand_primary_color: "#1877F2",
+          brand_secondary_color: "#FFFFFF",
           enable_watermark: true,
           watermark_logo_url: "logo.png",
           watermark_position: "top_right",
