@@ -1,25 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth/server-auth";
-import { createClient as createDirectSupabase } from "@supabase/supabase-js";
-import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY } from "@/lib/supabase/client";
-import { renderVideoClip, probeVideoFile } from "@/lib/clipper/ffmpeg-engine";
-import { saveUserClip } from "@/lib/clipper/storage";
-import * as fs from "fs";
-import * as path from "path";
-import crypto from "crypto";
+import { createClipRenderJob } from "@/lib/clipper/render-jobs";
+import { executeRenderJob } from "@/lib/clipper/render-manager";
+import { sanitizeErrorMessage } from "@/lib/clipper/render-storage";
 
 export const dynamic = "force-dynamic";
-
-function getServiceSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || DEFAULT_SUPABASE_URL;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    DEFAULT_SUPABASE_ANON_KEY;
-  return createDirectSupabase(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,7 +27,6 @@ export async function POST(request: NextRequest) {
       resolution = "1080p",
       subtitle_text,
       subtitle_style = "hormozi",
-      subtitle_position = "bottom",
       hook_text,
       watermark_text,
       watermark_position = "top_right",
@@ -52,6 +36,14 @@ export async function POST(request: NextRequest) {
       category,
       caption,
     } = body;
+
+    const source = source_local_path || source_video_url;
+    if (!source) {
+      return NextResponse.json(
+        { error: "Source video path or URL is required." },
+        { status: 400 }
+      );
+    }
 
     if (start_time === undefined || end_time === undefined) {
       return NextResponse.json(
@@ -71,93 +63,12 @@ export async function POST(request: NextRequest) {
 
     const clipDuration = Number((end - start).toFixed(2));
 
-    // Resolve local input path
-    let inputPath = source_local_path;
-    const tempDir = path.join(process.cwd(), ".data", "renders");
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-
-    // If local file path is not given or doesn't exist, download from source_video_url
-    if (!inputPath || !fs.existsSync(inputPath)) {
-      if (!source_video_url) {
-        return NextResponse.json(
-          { error: "Source video path or URL not found." },
-          { status: 400 }
-        );
-      }
-
-      const tempInput = path.join(tempDir, `input_${crypto.randomUUID()}.mp4`);
-      const resp = await fetch(source_video_url);
-      if (!resp.ok) {
-        return NextResponse.json(
-          { error: `Failed to download source video from ${source_video_url}` },
-          { status: 502 }
-        );
-      }
-      const arrBuf = await resp.arrayBuffer();
-      fs.writeFileSync(tempInput, Buffer.from(arrBuf));
-      inputPath = tempInput;
-    }
-
-    // Create unique output file
-    const clipId = crypto.randomUUID();
-    const outputFilename = `clip_${clipId}_${aspect_ratio.replace(":", "x")}.mp4`;
-    const outputPath = path.join(tempDir, outputFilename);
-
-    // 1. Run actual FFmpeg processing with OpusClip features
-    const renderResult = await renderVideoClip({
-      inputPath,
-      outputPath,
-      startTime: start,
-      duration: clipDuration,
-      aspectRatio: aspect_ratio,
-      reframingMode: reframing_mode,
-      cropPosition: crop_position,
-      resolution,
-      subtitleText: subtitle_text,
-      subtitleStyle: subtitle_style,
-      subtitlePosition: subtitle_position,
-      hookText: hook_text,
-      watermarkText: watermark_text,
-      watermarkPosition: watermark_position,
-      watermarkOpacity: Number(watermark_opacity) || 0.7,
-    });
-
-    const outputBuffer = fs.readFileSync(outputPath);
-
-    // 2. Upload resulting MP4 to Supabase Storage
-    const supabase = getServiceSupabase();
-    const storagePath = `clips/${user.id}/${outputFilename}`;
-    let exportedPublicUrl = "";
-
-    try {
-      const { error: uploadErr } = await supabase.storage
-        .from("videos")
-        .upload(storagePath, outputBuffer, {
-          contentType: "video/mp4",
-          upsert: true,
-        });
-
-      if (!uploadErr) {
-        const { data: urlData } = supabase.storage.from("videos").getPublicUrl(storagePath);
-        exportedPublicUrl = urlData.publicUrl;
-      }
-    } catch (e: any) {
-      console.warn("Clip upload warning:", e.message);
-    }
-
-    // Fallback URL if cloud storage is unconfigured
-    if (!exportedPublicUrl) {
-      exportedPublicUrl = `/storage/renders/${outputFilename}`;
-    }
-
-    // 3. Save clip metadata in database & multi-layer persistence
-    const savedRecord = await saveUserClip(user.id, {
-      source_video_url: source_video_url || inputPath,
+    // 1. Create a persistent render job record
+    const job = await createClipRenderJob({
+      user_id: user.id,
+      source_video_url: source,
       source_video_name: source_video_name || "Source Video",
       clip_title: clip_title || "Processed 9:16 Reel",
-      caption: caption || "",
       start_time: start,
       end_time: end,
       duration: clipDuration,
@@ -165,44 +76,42 @@ export async function POST(request: NextRequest) {
       reframing_mode,
       crop_position,
       resolution,
-      subtitle_text,
       subtitle_style,
-      exported_url: exportedPublicUrl,
-      file_size: renderResult.sizeBytes,
-      viral_score,
-      virality_breakdown,
-      category,
-      hook: hook_text,
+      subtitle_text: subtitle_text || clip_title,
+      hook_text,
+      watermark_text,
+      watermark_position,
+      watermark_opacity: Number(watermark_opacity) || 0.7,
+      metadata: {
+        caption,
+        viral_score,
+        virality_breakdown,
+        category,
+      },
     });
 
-    // 4. Also register into 'videos' table so it appears in the Video Library
-    try {
-      await supabase.from("videos").insert({
-        id: clipId,
-        user_id: user.id,
-        title: clip_title || "Processed 9:16 Reel",
-        video_url: exportedPublicUrl,
-        duration_seconds: clipDuration,
-        aspect_ratio,
-        resolution: resolution === "1080p" ? "1080x1920" : "720x1280",
-        file_size_bytes: renderResult.sizeBytes,
-        status: "ready",
-      });
-    } catch {}
+    // 2. Execute rendering pipeline with safe temporary storage in os.tmpdir()
+    const result = await executeRenderJob(job);
+
+    if (!result.success) {
+      return NextResponse.json(
+        {
+          error: result.error || "Rendering failed.",
+          job: result.job,
+        },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
-      clip: {
-        ...savedRecord,
-        id: clipId,
-        exported_url: exportedPublicUrl,
-        file_size: renderResult.sizeBytes,
-        status: "ready",
-      },
+      job: result.job,
+      clip: result.clipRecord,
     });
   } catch (err: any) {
+    console.error("[ClipperRenderAPI] Unexpected error:", err);
     return NextResponse.json(
-      { error: err.message || "Failed to render video clip with FFmpeg." },
+      { error: sanitizeErrorMessage(err?.message || "Failed to render video clip.") },
       { status: 500 }
     );
   }

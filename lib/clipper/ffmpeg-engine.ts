@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+import * as os from "os";
 import {
   AspectRatio,
   CropPosition,
@@ -9,15 +10,71 @@ import {
   SubtitleStyle,
 } from "./types";
 
-// Resolves path to bundled ffmpeg binary
+// Resolves path to bundled ffmpeg binary with Linux /tmp execution support for serverless
 export function getFFmpegPath(): string {
+  // 1. Environment variable override
+  if (process.env.FFMPEG_PATH && fs.existsSync(process.env.FFMPEG_PATH)) {
+    return process.env.FFMPEG_PATH;
+  }
+
+  // 2. On Linux (Vercel serverless / container)
+  if (process.platform === "linux") {
+    const tmpBinary = path.join(os.tmpdir(), "ffmpeg");
+    if (fs.existsSync(tmpBinary)) {
+      try {
+        fs.chmodSync(tmpBinary, 0o755);
+        return tmpBinary;
+      } catch {}
+    }
+
+    try {
+      const ffmpegStatic = require("ffmpeg-static");
+      if (ffmpegStatic && typeof ffmpegStatic === "string" && fs.existsSync(ffmpegStatic)) {
+        try {
+          fs.copyFileSync(ffmpegStatic, tmpBinary);
+          fs.chmodSync(tmpBinary, 0o755);
+          return tmpBinary;
+        } catch {
+          return ffmpegStatic;
+        }
+      }
+    } catch {}
+
+    return "ffmpeg";
+  }
+
+  // 3. On Windows / macOS
   try {
     const ffmpegStatic = require("ffmpeg-static");
     if (ffmpegStatic && typeof ffmpegStatic === "string" && fs.existsSync(ffmpegStatic)) {
       return ffmpegStatic;
     }
   } catch {}
+
   return "ffmpeg";
+}
+
+export function verifyFFmpegAvailable(): {
+  available: boolean;
+  path: string;
+  version?: string;
+  error?: string;
+} {
+  const binaryPath = getFFmpegPath();
+  try {
+    const res = spawnSync(binaryPath, ["-version"], {
+      encoding: "utf-8",
+      maxBuffer: 1024 * 1024,
+      timeout: 5000,
+    });
+    if (res.status === 0) {
+      const firstLine = (res.stdout || "").split("\n")[0] || "ffmpeg available";
+      return { available: true, path: binaryPath, version: firstLine };
+    }
+    return { available: false, path: binaryPath, error: res.stderr || `Exit code ${res.status}` };
+  } catch (err: any) {
+    return { available: false, path: binaryPath, error: err.message };
+  }
 }
 
 export interface VideoProbeResult {

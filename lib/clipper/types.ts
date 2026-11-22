@@ -72,6 +72,9 @@ export interface ViralCandidateClip {
   reframing_mode?: ReframingMode;
   subtitle_style?: SubtitleStyle;
   target_platforms?: TargetPlatform;
+  watermark_text?: string;
+  watermark_position?: "top_left" | "top_right" | "bottom_left" | "bottom_right";
+  watermark_opacity?: number;
   status?: "candidate" | "queued" | "rendering" | "ready" | "failed";
   rendered_clip_id?: string;
   rendered_url?: string;
@@ -168,6 +171,48 @@ export interface UploadedVideoInfo {
   resolution: string;
   size_bytes: number;
   size_formatted: string;
+}
+
+export type RenderJobStatus =
+  | "queued"
+  | "downloading"
+  | "processing"
+  | "rendering"
+  | "uploading"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface ClipRenderJob {
+  id: string;
+  user_id: string;
+  clip_id?: string;
+  status: RenderJobStatus;
+  progress: number;
+  source_video_url: string;
+  source_video_name?: string;
+  clip_title: string;
+  start_time: number;
+  end_time: number;
+  duration: number;
+  aspect_ratio: AspectRatio;
+  reframing_mode?: ReframingMode;
+  crop_position?: CropPosition;
+  resolution: Resolution;
+  subtitle_style?: SubtitleStyle;
+  subtitle_text?: string;
+  hook_text?: string;
+  watermark_text?: string;
+  watermark_position?: "top_left" | "top_right" | "bottom_left" | "bottom_right";
+  watermark_opacity?: number;
+  exported_url?: string;
+  storage_path?: string;
+  file_size?: number;
+  error_message?: string;
+  metadata?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string;
 }
 
 export interface BatchClipRequestItem {

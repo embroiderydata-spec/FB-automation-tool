@@ -29,6 +29,21 @@ import {
 } from "../lib/publishing/youtube";
 import { navigationItems } from "../components/dashboard/sidebar";
 import { PublishNowSchema, SchedulePostSchema } from "../lib/validations/publishing";
+import {
+  getRenderBaseDir,
+  createJobTempDir,
+  cleanupJobTempDir,
+  sanitizeErrorMessage,
+} from "../lib/clipper/render-storage";
+import {
+  createClipRenderJob,
+  updateClipRenderJob,
+  getClipRenderJob,
+  getUserClipRenderJobs,
+  cancelClipRenderJob,
+} from "../lib/clipper/render-jobs";
+import { executeRenderJob } from "../lib/clipper/render-manager";
+import * as os from "os";
 
 describe("Video Clipper Studio & Multi-Platform Publishing", () => {
   const testUserId = "test-user-clipper-" + Date.now();
@@ -536,6 +551,104 @@ describe("Video Clipper Studio & Multi-Platform Publishing", () => {
       assert.ok(matchedClip.end_time > matchedClip.start_time);
       assert.ok(matchedClip.viral_score >= 80);
       assert.strictEqual(matchedClip.category, "educational");
+    });
+  });
+
+  describe("9. Production Render Storage, Job System & Temporary File Management", () => {
+    test("getRenderBaseDir always resolves to os.tmpdir() and never project root or /var/task", () => {
+      const baseDir = getRenderBaseDir();
+      assert.ok(baseDir.startsWith(os.tmpdir()));
+      assert.strictEqual(baseDir.includes("/var/task"), false);
+      assert.ok(fs.existsSync(baseDir));
+    });
+
+    test("createJobTempDir creates an isolated writable folder and cleanupJobTempDir cleans it up", async () => {
+      const testJobId = "job_test_" + Date.now();
+      const jobDir = createJobTempDir(testJobId);
+      assert.ok(fs.existsSync(jobDir));
+
+      // Write test intermediate file
+      const testFile = path.join(jobDir, "interm.txt");
+      fs.writeFileSync(testFile, "intermediate render data");
+      assert.ok(fs.existsSync(testFile));
+
+      // Cleanup
+      await cleanupJobTempDir(jobDir);
+      assert.strictEqual(fs.existsSync(jobDir), false);
+    });
+
+    test("sanitizeErrorMessage scrubs internal server paths and /var/task", () => {
+      const raw = "ENOENT: no such file or directory, mkdir '/var/task/.data/renders'";
+      const scrubbed = sanitizeErrorMessage(raw);
+      assert.strictEqual(scrubbed.includes("/var/task"), false);
+      assert.strictEqual(scrubbed.includes("ENOENT"), false);
+      assert.ok(scrubbed.length > 5);
+    });
+
+    test("createClipRenderJob and updateClipRenderJob persist lifecycle states cleanly", async () => {
+      const job = await createClipRenderJob({
+        user_id: testUserId,
+        source_video_url: testVideoPath,
+        clip_title: "Test Viral Short",
+        start_time: 0,
+        end_time: 3,
+        duration: 3,
+        aspect_ratio: "9:16",
+        reframing_mode: "blurred_backdrop",
+        subtitle_style: "hormozi",
+      });
+
+      assert.ok(job);
+      assert.ok(job.id);
+      assert.strictEqual(job.status, "queued");
+      assert.strictEqual(job.progress, 0);
+
+      // Transition to rendering
+      const inProgress = await updateClipRenderJob(job.id, testUserId, {
+        status: "rendering",
+        progress: 60,
+      });
+      assert.strictEqual(inProgress?.status, "rendering");
+      assert.strictEqual(inProgress?.progress, 60);
+
+      // Verify retrieval
+      const fetched = await getClipRenderJob(job.id, testUserId);
+      assert.strictEqual(fetched?.id, job.id);
+      assert.strictEqual(fetched?.status, "rendering");
+
+      // Cancel
+      const cancelled = await cancelClipRenderJob(job.id, testUserId);
+      assert.strictEqual(cancelled, true);
+
+      const afterCancel = await getClipRenderJob(job.id, testUserId);
+      assert.strictEqual(afterCancel?.status, "cancelled");
+    });
+
+    test("executeRenderJob processes complete pipeline, creates output MP4, and cleans up temp directory", async () => {
+      const job = await createClipRenderJob({
+        user_id: testUserId,
+        source_video_url: testVideoPath,
+        clip_title: "Full Pipeline Render",
+        start_time: 0.5,
+        end_time: 2.5,
+        duration: 2.0,
+        aspect_ratio: "9:16",
+        reframing_mode: "blurred_backdrop",
+        subtitle_style: "hormozi",
+        subtitle_text: "PRODUCTION RENDER VERIFIED",
+        hook_text: "WAIT TILL THE END 🔥",
+      });
+
+      const result = await executeRenderJob(job);
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.job.status, "completed");
+      assert.strictEqual(result.job.progress, 100);
+      assert.ok(result.job.exported_url);
+      assert.ok(result.job.file_size && result.job.file_size > 0);
+
+      // Verify temporary directory was cleaned up
+      const jobDir = path.join(getRenderBaseDir(), job.id);
+      assert.strictEqual(fs.existsSync(jobDir), false, "Temporary job directory must be deleted after render");
     });
   });
 });

@@ -147,6 +147,7 @@ export default function VideoClipperPage() {
   const [editorCurrentTime, setEditorCurrentTime] = useState<number>(0);
   const editorVideoRef = useRef<HTMLVideoElement | null>(null);
   const [isRenderingEditorClip, setIsRenderingEditorClip] = useState<boolean>(false);
+  const [editorRenderStep, setEditorRenderStep] = useState<string>("");
   const [editorRenderSuccess, setEditorRenderSuccess] = useState<string | null>(null);
   const [editorRenderError, setEditorRenderError] = useState<string | null>(null);
 
@@ -437,11 +438,14 @@ export default function VideoClipperPage() {
     setIsRenderingEditorClip(true);
     setEditorRenderSuccess(null);
     setEditorRenderError(null);
+    setEditorRenderStep("1/4: Initializing persistent render job...");
 
     const targetUrl = uploadedFile?.url || analysis?.video_url || videoUrl;
     const localPath = uploadedFile?.path;
 
     try {
+      setEditorRenderStep("2/4: Submitting render parameters to background engine...");
+
       const res = await fetch("/api/clipper/render", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -457,6 +461,9 @@ export default function VideoClipperPage() {
           subtitle_style: activeEditorClip.subtitle_style || "hormozi",
           subtitle_text: activeEditorClip.title,
           hook_text: activeEditorClip.hook,
+          watermark_text: activeEditorClip.watermark_text,
+          watermark_position: activeEditorClip.watermark_position || "top_right",
+          watermark_opacity: activeEditorClip.watermark_opacity ?? 0.7,
           viral_score: activeEditorClip.viral_score,
           virality_breakdown: activeEditorClip.virality_breakdown,
           category: activeEditorClip.category,
@@ -469,10 +476,36 @@ export default function VideoClipperPage() {
         throw new Error(data.error || "Rendering failed.");
       }
 
+      // If job is in-progress, poll real job status
+      if (data.job && data.job.status !== "completed" && data.job.status !== "failed") {
+        let currentStatus = data.job.status;
+        let attempts = 0;
+        while (currentStatus !== "completed" && currentStatus !== "failed" && currentStatus !== "cancelled" && attempts < 40) {
+          await new Promise((r) => setTimeout(r, 2000));
+          attempts++;
+          const pollRes = await fetch(`/api/clipper/jobs/${data.job.id}`);
+          if (pollRes.ok) {
+            const pollData = await pollRes.json();
+            if (pollData.job) {
+              currentStatus = pollData.job.status;
+              const pct = pollData.job.progress || 0;
+              setEditorRenderStep(`Stage: ${currentStatus.toUpperCase()} (${pct}%)`);
+              if (currentStatus === "completed") {
+                break;
+              } else if (currentStatus === "failed") {
+                throw new Error(pollData.job.error_message || "Rendering failed.");
+              }
+            }
+          }
+        }
+      }
+
       setEditorRenderSuccess("Clip rendered successfully and saved to your library!");
+      setEditorRenderStep("");
       loadUserClips();
     } catch (err: any) {
       setEditorRenderError(err.message || "Failed to render clip.");
+      setEditorRenderStep("");
     } finally {
       setIsRenderingEditorClip(false);
     }
@@ -1503,6 +1536,18 @@ export default function VideoClipperPage() {
                 {/* Right 7 Cols: Customization Controls */}
                 <div className="lg:col-span-7 space-y-5">
                   {/* Status Banner */}
+                  {isRenderingEditorClip && (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 rounded-xl text-xs flex items-center justify-between font-semibold">
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
+                        <span>{editorRenderStep || "Rendering video clip with FFmpeg engine..."}</span>
+                      </div>
+                      <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-300 font-bold text-[10px]">
+                        Active Render Job
+                      </Badge>
+                    </div>
+                  )}
+
                   {editorRenderSuccess && (
                     <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-xl text-xs flex items-center justify-between">
                       <span className="flex items-center gap-1.5 font-semibold">
@@ -1633,6 +1678,47 @@ export default function VideoClipperPage() {
                       className="h-10 text-xs shadow-inner"
                       placeholder="e.g. Wait until you see the ending... 🔥"
                     />
+                  </div>
+
+                  {/* Branding / Watermark */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                        Watermark / Branding (Optional)
+                      </Label>
+                      <Input
+                        type="text"
+                        value={activeEditorClip.watermark_text || ""}
+                        onChange={(e) =>
+                          setActiveEditorClip({
+                            ...activeEditorClip,
+                            watermark_text: e.target.value,
+                          })
+                        }
+                        className="h-9 text-xs shadow-inner"
+                        placeholder="e.g. PagePulse AI"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                        Watermark Position
+                      </Label>
+                      <select
+                        value={activeEditorClip.watermark_position || "top_right"}
+                        onChange={(e) =>
+                          setActiveEditorClip({
+                            ...activeEditorClip,
+                            watermark_position: e.target.value as any,
+                          })
+                        }
+                        className="w-full h-9 text-xs bg-background border rounded px-2 font-medium"
+                      >
+                        <option value="top_right">Top Right (Default)</option>
+                        <option value="top_left">Top Left</option>
+                        <option value="bottom_right">Bottom Right</option>
+                        <option value="bottom_left">Bottom Left</option>
+                      </select>
+                    </div>
                   </div>
 
                   {/* Title & Caption */}

@@ -4,6 +4,7 @@ import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY } from "@/lib/supabase/
 import { VideoClipRecord, CreateClipInput } from "./types";
 import * as fs from "fs";
 import * as path from "path";
+import * as os from "os";
 import crypto from "crypto";
 
 function getServiceSupabase() {
@@ -15,7 +16,7 @@ function getServiceSupabase() {
 }
 
 function getLocalClipsPath(userId: string): string {
-  const dataDir = path.join(process.cwd(), ".data");
+  const dataDir = path.join(os.tmpdir(), "pagepulse-data");
   if (!fs.existsSync(dataDir)) {
     try {
       fs.mkdirSync(dataDir, { recursive: true });

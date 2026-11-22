@@ -3,6 +3,7 @@ import { createClient as createDirectSupabase } from "@supabase/supabase-js";
 import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY } from "@/lib/supabase/client";
 import * as fs from "fs";
 import * as path from "path";
+import * as os from "os";
 import crypto from "crypto";
 
 export interface YouTubeAccountRecord {
@@ -64,7 +65,7 @@ function getServiceSupabase() {
 }
 
 function getLocalYouTubePath(userId: string): string {
-  const dataDir = path.join(process.cwd(), ".data");
+  const dataDir = path.join(os.tmpdir(), "pagepulse-data");
   if (!fs.existsSync(dataDir)) {
     try {
       fs.mkdirSync(dataDir, { recursive: true });
@@ -448,7 +449,7 @@ export async function uploadVideoToYouTube(
 }
 
 function getLocalUploadHistoryPath(userId: string): string {
-  const dataDir = path.join(process.cwd(), ".data");
+  const dataDir = path.join(os.tmpdir(), "pagepulse-data");
   if (!fs.existsSync(dataDir)) {
     try {
       fs.mkdirSync(dataDir, { recursive: true });

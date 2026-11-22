@@ -6,6 +6,7 @@ import { probeVideoFile, formatBytes } from "@/lib/clipper/ffmpeg-engine";
 import { UploadedVideoInfo } from "@/lib/clipper/types";
 import * as fs from "fs";
 import * as path from "path";
+import * as os from "os";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -40,8 +41,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Uploaded video file is empty." }, { status: 400 });
     }
 
-    // 1. Save locally for zero-latency FFmpeg processing
-    const uploadsDir = path.join(process.cwd(), ".data", "uploads");
+    // 1. Save in writable OS temporary directory for zero-latency FFmpeg probing
+    const uploadsDir = path.join(os.tmpdir(), "pagepulse-uploads");
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }

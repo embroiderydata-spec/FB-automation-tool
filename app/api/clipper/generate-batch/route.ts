@@ -8,6 +8,7 @@ import { downloadRemoteVideo, parseVideoUrl } from "@/lib/clipper/ai-analyzer";
 import { BatchClipRequestItem, VideoClipRecord } from "@/lib/clipper/types";
 import * as fs from "fs";
 import * as path from "path";
+import * as os from "os";
 import crypto from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -69,8 +70,8 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Download direct video URL to temp directory
-      const tempDir = path.join(process.cwd(), "tmp", "sources");
+      // Download direct video URL to writable OS temp directory
+      const tempDir = path.join(os.tmpdir(), "pagepulse-batch", "sources");
       if (!fs.existsSync(tempDir)) {
         fs.mkdirSync(tempDir, { recursive: true });
       }
@@ -101,7 +102,7 @@ export async function POST(request: NextRequest) {
     }
 
     const service = getServiceSupabase();
-    const outDir = path.join(process.cwd(), "tmp", "rendered-clips");
+    const outDir = path.join(os.tmpdir(), "pagepulse-batch", "rendered-clips");
     if (!fs.existsSync(outDir)) {
       fs.mkdirSync(outDir, { recursive: true });
     }
