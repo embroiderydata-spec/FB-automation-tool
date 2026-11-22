@@ -37,10 +37,19 @@ export async function POST(request: NextRequest) {
       start_time,
       end_time,
       aspect_ratio = "9:16",
+      reframing_mode = "blurred_backdrop",
       crop_position = "center",
       resolution = "1080p",
       subtitle_text,
-      subtitle_position = "top",
+      subtitle_style = "hormozi",
+      subtitle_position = "bottom",
+      hook_text,
+      watermark_text,
+      watermark_position = "top_right",
+      watermark_opacity = 0.7,
+      viral_score,
+      virality_breakdown,
+      category,
       caption,
     } = body;
 
@@ -96,17 +105,23 @@ export async function POST(request: NextRequest) {
     const outputFilename = `clip_${clipId}_${aspect_ratio.replace(":", "x")}.mp4`;
     const outputPath = path.join(tempDir, outputFilename);
 
-    // 1. Run actual FFmpeg processing
+    // 1. Run actual FFmpeg processing with OpusClip features
     const renderResult = await renderVideoClip({
       inputPath,
       outputPath,
       startTime: start,
       duration: clipDuration,
       aspectRatio: aspect_ratio,
+      reframingMode: reframing_mode,
       cropPosition: crop_position,
       resolution,
       subtitleText: subtitle_text,
+      subtitleStyle: subtitle_style,
       subtitlePosition: subtitle_position,
+      hookText: hook_text,
+      watermarkText: watermark_text,
+      watermarkPosition: watermark_position,
+      watermarkOpacity: Number(watermark_opacity) || 0.7,
     });
 
     const outputBuffer = fs.readFileSync(outputPath);
@@ -147,11 +162,17 @@ export async function POST(request: NextRequest) {
       end_time: end,
       duration: clipDuration,
       aspect_ratio,
+      reframing_mode,
       crop_position,
       resolution,
       subtitle_text,
+      subtitle_style,
       exported_url: exportedPublicUrl,
       file_size: renderResult.sizeBytes,
+      viral_score,
+      virality_breakdown,
+      category,
+      hook: hook_text,
     });
 
     // 4. Also register into 'videos' table so it appears in the Video Library

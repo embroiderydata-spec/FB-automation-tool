@@ -47,7 +47,6 @@ export async function POST(request: NextRequest) {
 
     // 1. Resolve source video file locally for FFmpeg processing
     let localSource = source_local_path;
-    let cleanupSourceTemp = false;
 
     if (!localSource || !fs.existsSync(localSource)) {
       if (!source_video_url) {
@@ -81,7 +80,6 @@ export async function POST(request: NextRequest) {
       if (!fs.existsSync(localSource)) {
         try {
           await downloadRemoteVideo(source_video_url, localSource);
-          cleanupSourceTemp = false; // cache it for subsequent clips
         } catch (downloadErr: any) {
           return NextResponse.json(
             {
@@ -124,18 +122,22 @@ export async function POST(request: NextRequest) {
       const duration = Math.max(0.5, Number((item.end_time - item.start_time).toFixed(2)));
 
       try {
-        // Execute real FFmpeg trimming, 9:16 scaling, subtitles and encoding
+        // Execute real FFmpeg trimming, 9:16 scaling, reframing, subtitles and encoding
         await renderVideoClip({
           inputPath: localSource,
           outputPath,
           startTime: item.start_time,
           duration,
           aspectRatio: item.aspect_ratio || "9:16",
+          reframingMode: item.reframing_mode || "blurred_backdrop",
           cropPosition: item.crop_position || "center",
           resolution: item.resolution || "1080p",
           subtitleText: item.subtitle_text || item.title,
-          subtitleStyle: item.subtitle_style || "viral_bold",
+          subtitleStyle: item.subtitle_style || "hormozi",
           hookText: item.hook_text || item.hook,
+          watermarkText: item.watermark_text,
+          watermarkPosition: item.watermark_position || "top_right",
+          watermarkOpacity: item.watermark_opacity ?? 0.7,
         });
 
         // Read rendered file buffer
@@ -155,7 +157,6 @@ export async function POST(request: NextRequest) {
           const { data: pubData } = service.storage.from("clips").getPublicUrl(storagePath);
           publicUrl = pubData.publicUrl;
         } else {
-          // Fallback to local data URL or direct link if storage is unavailable
           publicUrl = `/api/clipper/download?id=${clipId}`;
         }
 
@@ -169,13 +170,15 @@ export async function POST(request: NextRequest) {
           end_time: item.end_time,
           duration,
           aspect_ratio: item.aspect_ratio || "9:16",
+          reframing_mode: item.reframing_mode || "blurred_backdrop",
           crop_position: item.crop_position || "center",
           resolution: item.resolution || "1080p",
           subtitle_text: item.subtitle_text || item.title,
-          subtitle_style: item.subtitle_style || "viral_bold",
+          subtitle_style: item.subtitle_style || "hormozi",
           exported_url: publicUrl,
           file_size: fileBuffer.length,
           viral_score: item.viral_score,
+          virality_breakdown: item.virality_breakdown,
           category: item.category,
           hook: item.hook_text || item.hook,
         });

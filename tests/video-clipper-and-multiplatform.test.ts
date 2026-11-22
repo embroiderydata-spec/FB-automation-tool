@@ -15,6 +15,7 @@ import {
   formatTimestamp,
   parseTimestamp,
   analyzeVideoViralMoments,
+  searchTranscriptForTopic,
 } from "../lib/clipper/ai-analyzer";
 import {
   getYouTubeAuthUrl,
@@ -418,6 +419,123 @@ describe("Video Clipper Studio & Multi-Platform Publishing", () => {
 
       const afterHistory = await getYouTubeUploadHistory(testUserId);
       assert.strictEqual(afterHistory.some((h) => h.id === uploadRecord.id), false);
+    });
+  });
+
+  describe("8. OpusClip AI Clipping Engine & Reframing", () => {
+    test("renderVideoClip renders with OpusClip blurred backdrop vertical reframing", async () => {
+      const outBlurred = path.join(testDir, "output_blurred_backdrop.mp4");
+      const result = await renderVideoClip({
+        inputPath: testVideoPath,
+        outputPath: outBlurred,
+        startTime: 0,
+        duration: 2.0,
+        aspectRatio: "9:16",
+        reframingMode: "blurred_backdrop",
+        subtitleStyle: "hormozi",
+        subtitleText: "ALEX HORMOZI STYLE CAPTION",
+        hookText: "WAIT TILL THE END 🔥",
+        watermarkText: "PagePulse AI",
+        watermarkPosition: "top_right",
+        watermarkOpacity: 0.8,
+      });
+
+      assert.ok(fs.existsSync(outBlurred));
+      assert.ok(result.sizeBytes > 0);
+      assert.strictEqual(result.duration, 2.0);
+
+      const probe = probeVideoFile(outBlurred);
+      assert.strictEqual(probe.width, 1080);
+      assert.strictEqual(probe.height, 1920);
+      assert.strictEqual(probe.resolution, "1080x1920");
+    });
+
+    test("renderVideoClip renders with split-screen vertical reframing", async () => {
+      const outSplit = path.join(testDir, "output_split_screen.mp4");
+      const result = await renderVideoClip({
+        inputPath: testVideoPath,
+        outputPath: outSplit,
+        startTime: 0.5,
+        duration: 1.5,
+        aspectRatio: "9:16",
+        reframingMode: "split_screen",
+        subtitleStyle: "karaoke",
+        subtitleText: "KARAOKE GLOWING SUBTITLES",
+      });
+
+      assert.ok(fs.existsSync(outSplit));
+      assert.ok(result.sizeBytes > 0);
+
+      const probe = probeVideoFile(outSplit);
+      assert.strictEqual(probe.width, 1080);
+      assert.strictEqual(probe.height, 1920);
+    });
+
+    test("analyzeVideoViralMoments supports custom clip counts and duration presets", async () => {
+      const sampleTranscript = [
+        { start: 0, duration: 4, text: "Welcome back guys, today we are discussing the number one mistake beginners make." },
+        { start: 4, duration: 5, text: "Most people spend months building products without talking to a single customer." },
+        { start: 9, duration: 4, text: "This is completely crazy because you need to validate demand first!" },
+        { start: 13, duration: 5, text: "So here is the three-step framework that will save you hundreds of hours." },
+        { start: 18, duration: 6, text: "Step one: find ten people in your target niche and ask them about their biggest pain point." },
+        { start: 24, duration: 5, text: "Step two: pre-sell your solution before writing a single line of code." },
+        { start: 29, duration: 5, text: "And step three: deliver massive value and get them to refer two friends." },
+        { start: 34, duration: 5, text: "If you do this, you will never waste time again! Hit subscribe for more tips." },
+      ];
+
+      const analysis = await analyzeVideoViralMoments({
+        videoUrl: "https://example.com/podcast.mp4",
+        sourceType: "direct_url",
+        title: "The Ultimate Guide to Startup Validation",
+        duration: 40,
+        transcript: sampleTranscript,
+        userId: testUserId,
+        clipCount: 3,
+        durationPreset: "30-60",
+        targetPlatform: "both",
+        aiInstructions: "Find the strongest advice moment for beginners",
+      });
+
+      assert.ok(analysis);
+      assert.strictEqual(analysis.transcript_available, true);
+      assert.ok(Array.isArray(analysis.candidate_clips));
+      assert.ok(analysis.candidate_clips.length > 0);
+
+      const clip = analysis.candidate_clips[0];
+      assert.ok(clip.viral_score >= 70 && clip.viral_score <= 100);
+      assert.ok(clip.virality_breakdown);
+      assert.ok(clip.virality_breakdown.hook > 0);
+      assert.ok(clip.virality_breakdown.emotional > 0);
+      assert.ok(clip.virality_breakdown.value > 0);
+      assert.ok(clip.virality_breakdown.retention > 0);
+      assert.ok(clip.virality_breakdown.quality > 0);
+      assert.ok(clip.title_options.length >= 3);
+      assert.ok(clip.hook_options.length >= 2);
+      assert.ok(clip.reason.length > 10);
+    });
+
+    test("searchTranscriptForTopic finds matching timestamped moment by topic query", async () => {
+      const sampleTranscript = [
+        { start: 0, duration: 5, text: "Hello everyone, today we talk about digital marketing." },
+        { start: 10, duration: 6, text: "Now let's talk about the biggest mistake beginners make in business." },
+        { start: 16, duration: 5, text: "Beginners always underprice their services out of fear." },
+        { start: 21, duration: 6, text: "When you charge premium prices, customers take you seriously and value your work." },
+        { start: 27, duration: 5, text: "That is why you must double your prices today." },
+      ];
+
+      const matchedClip = await searchTranscriptForTopic({
+        topicQuery: "biggest mistake beginners make",
+        transcript: sampleTranscript,
+        videoDuration: 35,
+        videoTitle: "Marketing Masterclass",
+        userId: testUserId,
+      });
+
+      assert.ok(matchedClip);
+      assert.ok(matchedClip.start_time >= 8 && matchedClip.start_time <= 15);
+      assert.ok(matchedClip.end_time > matchedClip.start_time);
+      assert.ok(matchedClip.viral_score >= 80);
+      assert.strictEqual(matchedClip.category, "educational");
     });
   });
 });

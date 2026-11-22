@@ -6,7 +6,7 @@ import {
   analyzeVideoViralMoments,
 } from "@/lib/clipper/ai-analyzer";
 import { probeVideoFile } from "@/lib/clipper/ffmpeg-engine";
-import { VideoAnalysisResult } from "@/lib/clipper/types";
+import { VideoAnalysisResult, TargetPlatform, ClipDurationPreset } from "@/lib/clipper/types";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,15 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { url, auto_clip = false, max_clips = 3 } = body;
+    const {
+      url,
+      clip_count = 5,
+      duration_range = "30-60",
+      target_platform = "both",
+      language = "auto",
+      ai_instructions,
+      topic_query,
+    } = body;
 
     if (!url || typeof url !== "string") {
       return NextResponse.json(
@@ -56,6 +64,12 @@ export async function POST(request: NextRequest) {
         thumbnailUrl: meta.thumbnail,
         transcript: meta.transcript,
         userId: user.id,
+        clipCount: Number(clip_count) || 5,
+        durationPreset: (duration_range as ClipDurationPreset) || "30-60",
+        targetPlatform: (target_platform as TargetPlatform) || "both",
+        language: language || "auto",
+        aiInstructions: ai_instructions,
+        topicQuery: topic_query,
       });
     } else {
       // 2. Direct Video URL or Storage Video Analysis
@@ -87,6 +101,12 @@ export async function POST(request: NextRequest) {
         resolution,
         thumbnailUrl: undefined,
         userId: user.id,
+        clipCount: Number(clip_count) || 5,
+        durationPreset: (duration_range as ClipDurationPreset) || "30-60",
+        targetPlatform: (target_platform as TargetPlatform) || "both",
+        language: language || "auto",
+        aiInstructions: ai_instructions,
+        topicQuery: topic_query,
       });
     }
 
@@ -97,11 +117,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error("Video analysis error:", error);
     return NextResponse.json(
-      {
-        error:
-          error?.message ||
-          "Failed to analyze video. Please verify the link is accessible or upload the video directly.",
-      },
+      { error: error?.message || "Failed to analyze video." },
       { status: 500 }
     );
   }

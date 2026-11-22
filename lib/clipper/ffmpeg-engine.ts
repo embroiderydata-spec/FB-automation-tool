@@ -1,7 +1,13 @@
 import { spawn, spawnSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
-import { AspectRatio, CropPosition, Resolution, SubtitleStyle } from "./types";
+import {
+  AspectRatio,
+  CropPosition,
+  ReframingMode,
+  Resolution,
+  SubtitleStyle,
+} from "./types";
 
 // Resolves path to bundled ffmpeg binary
 export function getFFmpegPath(): string {
@@ -77,12 +83,16 @@ export interface RenderClipOptions {
   startTime: number;
   duration: number;
   aspectRatio: AspectRatio;
+  reframingMode?: ReframingMode;
   cropPosition?: CropPosition;
   resolution?: Resolution;
   subtitleText?: string;
   subtitleStyle?: SubtitleStyle;
   subtitlePosition?: "top" | "center" | "bottom";
   hookText?: string;
+  watermarkText?: string;
+  watermarkPosition?: "top_left" | "top_right" | "bottom_left" | "bottom_right";
+  watermarkOpacity?: number;
 }
 
 export async function renderVideoClip(
@@ -120,8 +130,10 @@ export async function renderVideoClip(
   targetWidth = targetWidth % 2 === 0 ? targetWidth : targetWidth - 1;
   targetHeight = targetHeight % 2 === 0 ? targetHeight : targetHeight - 1;
 
-  // Build Filter: Scale and Crop
-  const cropPos = options.cropPosition || "center";
+  // Build Video Filter Chain
+  const reframing = options.reframingMode || "auto_center";
+  const cropPos = options.cropPosition || (reframing === "top_crop" ? "top" : reframing === "bottom_crop" ? "bottom" : "center");
+
   let cropY = `(in_h-${targetHeight})/2`;
   if (cropPos === "top") {
     cropY = "0";
@@ -129,7 +141,18 @@ export async function renderVideoClip(
     cropY = `in_h-${targetHeight}`;
   }
 
-  let filterChain = `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight}:(in_w-${targetWidth})/2:${cropY}`;
+  let filterChain = "";
+
+  if (reframing === "blurred_backdrop" && options.aspectRatio === "9:16") {
+    // OpusClip signature blurred background with sharp centered video
+    filterChain = `split[main][bg];[bg]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight},boxblur=25:5[bgblur];[main]scale=${targetWidth}:-2:force_original_aspect_ratio=decrease[fg];[bgblur][fg]overlay=(W-w)/2:(H-h)/2`;
+  } else if (reframing === "split_screen" && options.aspectRatio === "9:16") {
+    const halfH = Math.floor(targetHeight / 2);
+    filterChain = `split[top][bot];[top]scale=${targetWidth}:${halfH}:force_original_aspect_ratio=increase,crop=${targetWidth}:${halfH}[t];[bot]scale=${targetWidth}:${halfH}:force_original_aspect_ratio=increase,crop=${targetWidth}:${halfH},boxblur=15:3[b];[t][b]vstack`;
+  } else {
+    // Smart center or directional crop
+    filterChain = `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight}:(in_w-${targetWidth})/2:${cropY}`;
+  }
 
   // Optional Hook Headline Overlay (Top)
   if (options.hookText && options.hookText.trim().length > 0) {
@@ -138,7 +161,30 @@ export async function renderVideoClip(
     filterChain += `,drawtext=text='${cleanHook}':fontcolor=yellow:fontsize=${hookFontSize}:box=1:boxcolor=black@0.7:boxborderw=10:x=(w-text_w)/2:y=(h*0.12)`;
   }
 
-  // Optional Subtitle / Caption Overlay
+  // Optional Watermark / Logo Text
+  if (options.watermarkText && options.watermarkText.trim().length > 0) {
+    const cleanWatermark = options.watermarkText.trim().replace(/['"\\]/g, "");
+    const wmSize = Math.round(targetWidth * 0.028);
+    const wmOpacity = options.watermarkOpacity ?? 0.7;
+    const wmPos = options.watermarkPosition || "top_right";
+
+    let wmX = `w-text_w-24`;
+    let wmY = `32`;
+    if (wmPos === "top_left") {
+      wmX = `24`;
+      wmY = `32`;
+    } else if (wmPos === "bottom_left") {
+      wmX = `24`;
+      wmY = `h-text_h-36`;
+    } else if (wmPos === "bottom_right") {
+      wmX = `w-text_w-24`;
+      wmY = `h-text_h-36`;
+    }
+
+    filterChain += `,drawtext=text='${cleanWatermark}':fontcolor=white@${wmOpacity}:fontsize=${wmSize}:x=${wmX}:y=${wmY}`;
+  }
+
+  // Optional Subtitle / Caption Overlay with OpusClip Style Presets
   if (options.subtitleText && options.subtitleText.trim().length > 0 && options.subtitleStyle !== "none") {
     const cleanText = options.subtitleText.trim().replace(/['"\\]/g, "");
     const subPos = options.subtitlePosition || "bottom";
@@ -146,15 +192,25 @@ export async function renderVideoClip(
     if (subPos === "center") textY = "(h*0.5)-(text_h/2)";
     else if (subPos === "top") textY = "(h*0.22)";
 
-    const fontSize = Math.round(targetWidth * 0.048);
-    const style = options.subtitleStyle || "viral_bold";
+    const fontSize = Math.round(targetWidth * 0.050);
+    const style = options.subtitleStyle || "hormozi";
 
-    if (style === "viral_bold") {
+    if (style === "hormozi") {
+      // Alex Hormozi signature: Bold yellow/green uppercase with heavy black stroke
+      const upperText = cleanText.toUpperCase();
+      filterChain += `,drawtext=text='${upperText}':fontcolor=yellow:fontsize=${Math.round(fontSize * 1.1)}:borderw=5:bordercolor=black:box=1:boxcolor=black@0.75:boxborderw=10:x=(w-text_w)/2:y=${textY}`;
+    } else if (style === "viral_bold") {
       filterChain += `,drawtext=text='${cleanText}':fontcolor=yellow:fontsize=${fontSize}:borderw=4:bordercolor=black:box=1:boxcolor=black@0.7:boxborderw=8:x=(w-text_w)/2:y=${textY}`;
     } else if (style === "clean_minimal") {
       filterChain += `,drawtext=text='${cleanText}':fontcolor=white:fontsize=${fontSize}:box=1:boxcolor=black@0.75:boxborderw=10:x=(w-text_w)/2:y=${textY}`;
+    } else if (style === "modern_podcast") {
+      filterChain += `,drawtext=text='${cleanText}':fontcolor=white:fontsize=${Math.round(fontSize * 0.95)}:shadowcolor=black@0.8:shadowx=2:shadowy=2:box=1:boxcolor=black@0.5:boxborderw=6:x=(w-text_w)/2:y=${textY}`;
     } else if (style === "karaoke") {
       filterChain += `,drawtext=text='${cleanText}':fontcolor=cyan:fontsize=${fontSize}:borderw=4:bordercolor=black:box=1:boxcolor=black@0.6:boxborderw=8:x=(w-text_w)/2:y=${textY}`;
+    } else if (style === "highlight_words") {
+      filterChain += `,drawtext=text='${cleanText}':fontcolor=0x00FF88:fontsize=${fontSize}:borderw=4:bordercolor=black:box=1:boxcolor=black@0.7:boxborderw=8:x=(w-text_w)/2:y=${textY}`;
+    } else if (style === "professional") {
+      filterChain += `,drawtext=text='${cleanText}':fontcolor=white:fontsize=${fontSize}:shadowcolor=black@0.6:shadowx=3:shadowy=3:x=(w-text_w)/2:y=${textY}`;
     } else {
       filterChain += `,drawtext=text='${cleanText}':fontcolor=yellow:fontsize=${fontSize}:box=1:boxcolor=black@0.65:boxborderw=10:x=(w-text_w)/2:y=${textY}`;
     }
@@ -207,8 +263,13 @@ export async function renderVideoClip(
         }
       }
 
-      // If drawtext failed due to font issues, retry once with base scaling and cropping
-      if (stderr.includes("drawtext") || stderr.includes("Fontconfig")) {
+      // If drawtext failed due to font issues, retry with base scaling & reframing
+      if (stderr.includes("drawtext") || stderr.includes("Fontconfig") || stderr.includes("filter")) {
+        const fallbackFilter =
+          reframing === "blurred_backdrop" && options.aspectRatio === "9:16"
+            ? `split[main][bg];[bg]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight},boxblur=25:5[bgblur];[main]scale=${targetWidth}:-2:force_original_aspect_ratio=decrease[fg];[bgblur][fg]overlay=(W-w)/2:(H-h)/2`
+            : `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight}:(in_w-${targetWidth})/2:${cropY}`;
+
         const fallbackArgs = [
           "-y",
           "-ss",
@@ -218,7 +279,7 @@ export async function renderVideoClip(
           "-t",
           options.duration.toString(),
           "-vf",
-          `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight}:(in_w-${targetWidth})/2:${cropY}`,
+          fallbackFilter,
           "-c:v",
           "libx264",
           "-preset",
@@ -235,6 +296,7 @@ export async function renderVideoClip(
           "+faststart",
           options.outputPath,
         ];
+
         const retryProc = spawn(ffmpeg, fallbackArgs);
         retryProc.on("close", (retryCode) => {
           if (retryCode === 0 && fs.existsSync(options.outputPath)) {
