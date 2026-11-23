@@ -16,6 +16,8 @@ import {
 import { getGlobalEmergencyStatus } from "../lib/security/emergency";
 import { pruneRateLimitBuckets } from "../lib/security/rate-limiter";
 import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY } from "../lib/supabase/client";
+import { executeRenderJob } from "../lib/clipper/render-manager";
+import { ClipRenderJob } from "../lib/clipper/types";
 
 const WORKER_ID = `worker_${os.hostname()}_${process.pid}_${Date.now().toString(36)}`;
 const POLL_INTERVAL_MS = 5000;
@@ -161,6 +163,32 @@ export async function startWorkerRunner() {
           }
         }
       }
+
+      // 5. Poll and process queued video render jobs
+      try {
+        const { data: renderJobs } = await supabase
+          .from("clip_render_jobs")
+          .select("*")
+          .eq("status", "queued")
+          .order("created_at", { ascending: true })
+          .limit(1);
+
+        if (renderJobs && renderJobs.length > 0) {
+          const rJob = renderJobs[0] as ClipRenderJob;
+          activeJobsCount++;
+          try {
+            logger.info("WorkerRunner", `Processing clip render job ${rJob.id} ("${rJob.clip_title}")`, {
+              jobId: rJob.id,
+              aspectRatio: rJob.aspect_ratio,
+            });
+            await executeRenderJob(rJob);
+          } catch (rErr: any) {
+            logger.error("WorkerRunner", `Clip render job ${rJob.id} failed`, {}, rErr);
+          } finally {
+            activeJobsCount = Math.max(0, activeJobsCount - 1);
+          }
+        }
+      } catch {}
     } catch (loopErr) {
       logger.error("WorkerRunner", "Unhandled exception in worker polling loop", {}, loopErr);
     }

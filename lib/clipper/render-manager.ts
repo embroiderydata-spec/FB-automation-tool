@@ -2,12 +2,13 @@ import * as fs from "fs";
 import * as path from "path";
 import { createClient as createDirectSupabase } from "@supabase/supabase-js";
 import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY } from "@/lib/supabase/client";
-import { renderVideoClip, probeVideoFile, getFFmpegPath } from "./ffmpeg-engine";
+import { renderVideoClip, probeVideoFile, getFFmpegPath, getFFprobePath } from "./ffmpeg-engine";
 import { saveUserClip } from "./storage";
 import {
   createJobTempDir,
   cleanupJobTempDir,
   downloadSourceVideo,
+  validateVideoFile,
   sanitizeErrorMessage,
   cleanAbandonedTempDirs,
 } from "./render-storage";
@@ -47,13 +48,14 @@ export async function executeRenderJob(job: ClipRenderJob): Promise<RenderExecut
   cleanAbandonedTempDirs().catch(() => {});
 
   try {
-    // 1. Verify FFmpeg binary availability
+    // 1. Verify FFmpeg and FFprobe binary availability
     const ffmpegPath = getFFmpegPath();
+    const ffprobePath = getFFprobePath();
     if (!ffmpegPath) {
       throw new Error("FFmpeg rendering binary is not accessible on this system.");
     }
 
-    // 2. Stage 1: Downloading / Retrieving Source Video
+    // 2. Stage 1: Downloading / Ingesting Source Video
     await updateClipRenderJob(job.id, job.user_id, {
       status: "downloading",
       progress: 15,
@@ -63,26 +65,24 @@ export async function executeRenderJob(job: ClipRenderJob): Promise<RenderExecut
       // Local source path provided
       fs.copyFileSync(job.source_video_url, sourcePath);
     } else if (job.source_video_url.startsWith("http")) {
-      // Remote source URL
-      await downloadSourceVideo(job.source_video_url, sourcePath, 45000);
+      // Remote source URL (Direct MP4, Cloud Storage, or YouTube Stream)
+      await downloadSourceVideo(job.source_video_url, sourcePath, 60000);
     } else {
       throw new Error("Invalid source video reference or file not found.");
     }
 
-    if (!fs.existsSync(sourcePath) || fs.statSync(sourcePath).size === 0) {
-      throw new Error("Source video could not be retrieved or is empty.");
-    }
-
-    // 3. Stage 2: Processing & Probing Source Telemetry
+    // 3. Stage 2: Processing & Probing Source Telemetry with real FFprobe
     await updateClipRenderJob(job.id, job.user_id, {
       status: "processing",
       progress: 35,
     });
 
-    const probe = probeVideoFile(sourcePath);
-    if (probe.duration <= 0) {
-      throw new Error("Failed to read video stream telemetry from source file.");
+    const validation = validateVideoFile(sourcePath);
+    if (!validation.valid || validation.probe.duration <= 0) {
+      throw new Error(validation.error || "Failed to read video stream telemetry from source file.");
     }
+
+    const probe = validation.probe;
 
     // Bounds check
     const start = Math.max(0, Math.min(probe.duration, job.start_time));

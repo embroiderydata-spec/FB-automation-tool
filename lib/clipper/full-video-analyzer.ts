@@ -18,6 +18,7 @@ import {
 } from "./ffmpeg-engine";
 import { transcribeAudioFile } from "./audio-transcriber";
 import { updateAnalysisJob } from "./analysis-jobs";
+import { downloadSourceVideo } from "./render-storage";
 import {
   parseVideoUrl,
   fetchYouTubeMetadata,
@@ -48,32 +49,11 @@ async function downloadSourceToTemp(
   destPath: string,
   timeoutMs = 60000
 ): Promise<string> {
-  const dir = path.dirname(destPath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-
-  // If already a local file path
   if (fs.existsSync(url)) {
     fs.copyFileSync(url, destPath);
     return destPath;
   }
-
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
-    },
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-
-  if (!res.ok) {
-    throw new Error(`Failed to download source video (${res.status} ${res.statusText})`);
-  }
-
-  const arrayBuffer = await res.arrayBuffer();
-  fs.writeFileSync(destPath, Buffer.from(arrayBuffer));
-  return destPath;
+  return await downloadSourceVideo(url, destPath, timeoutMs);
 }
 
 /**

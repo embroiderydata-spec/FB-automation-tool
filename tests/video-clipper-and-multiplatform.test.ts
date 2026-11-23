@@ -9,6 +9,10 @@ import {
   renderVideoClip,
   formatBytes,
   getFFmpegPath,
+  getFFprobePath,
+  verifyFFmpegAvailable,
+  verifyFFprobeAvailable,
+  runFFmpegDiagnostics,
 } from "../lib/clipper/ffmpeg-engine";
 import {
   parseVideoUrl,
@@ -34,6 +38,7 @@ import {
   createJobTempDir,
   cleanupJobTempDir,
   sanitizeErrorMessage,
+  validateVideoFile,
 } from "../lib/clipper/render-storage";
 import {
   createClipRenderJob,
@@ -80,13 +85,47 @@ describe("Video Clipper Studio & Multi-Platform Publishing", () => {
   });
 
   describe("1. Real FFmpeg Video Processing & Probing", () => {
-    test("probeVideoFile accurately extracts real duration, width, height and resolution", () => {
+    test("verifyFFmpegAvailable and verifyFFprobeAvailable confirm binaries and output version headers", () => {
+      const ffmpeg = verifyFFmpegAvailable();
+      assert.strictEqual(ffmpeg.available, true);
+      assert.ok(ffmpeg.version?.includes("ffmpeg"));
+
+      const ffprobe = verifyFFprobeAvailable();
+      assert.strictEqual(ffprobe.available, true);
+      assert.ok(ffprobe.version?.includes("ffprobe"));
+    });
+
+    test("runFFmpegDiagnostics returns operational status and environment telemetry", () => {
+      const diag = runFFmpegDiagnostics();
+      assert.strictEqual(diag.ready, true);
+      assert.strictEqual(diag.ffmpeg.available, true);
+      assert.strictEqual(diag.ffprobe.available, true);
+      assert.strictEqual(diag.tempDir.writable, true);
+      assert.ok(diag.memoryMb.heapUsed > 0);
+    });
+
+    test("probeVideoFile accurately extracts real duration, width, height, resolution, and codecs", () => {
       const probe = probeVideoFile(testVideoPath);
       assert.ok(probe);
       assert.strictEqual(probe.width, 1920);
       assert.strictEqual(probe.height, 1080);
       assert.strictEqual(probe.resolution, "1920x1080");
+      assert.strictEqual(probe.aspectRatio, "16:9");
       assert.ok(probe.duration >= 4.9 && probe.duration <= 5.1);
+      assert.strictEqual(probe.hasAudio, true);
+    });
+
+    test("validateVideoFile rejects text/HTML file and accepts real MP4", () => {
+      const dummyHtml = path.join(testDir, "error_page.html");
+      fs.writeFileSync(dummyHtml, "<!DOCTYPE html><html><body>Error 404 Video Not Found</body></html>");
+
+      const invalidCheck = validateVideoFile(dummyHtml);
+      assert.strictEqual(invalidCheck.valid, false);
+      assert.ok(invalidCheck.error?.includes("telemetry") || invalidCheck.error?.includes("small"));
+
+      const validCheck = validateVideoFile(testVideoPath);
+      assert.strictEqual(validCheck.valid, true);
+      assert.ok(validCheck.probe.duration > 4);
     });
 
     test("renderVideoClip trims exact duration and crops to 9:16 vertical (1080x1920)", async () => {

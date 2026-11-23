@@ -76,8 +76,12 @@ export async function cleanAbandonedTempDirs(maxAgeMs: number = 3600000): Promis
   }
 }
 
+import { spawnSync } from "child_process";
+import { getFFmpegPath, probeVideoFile, VideoProbeResult } from "./ffmpeg-engine";
+
 /**
- * Downloads a remote video into a target temporary file with timeout and size check.
+ * Downloads a remote video into a target temporary file with timeout, format validation,
+ * and automatic YouTube stream resolution.
  */
 export async function downloadSourceVideo(
   url: string,
@@ -89,13 +93,78 @@ export async function downloadSourceVideo(
     fs.mkdirSync(dir, { recursive: true });
   }
 
+  // 1. Check if the URL is a YouTube Video (OpusClip flow)
+  const isYouTube = /(?:https?:\/\/)?(?:www\.|m\.)?(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i.test(
+    url.trim()
+  );
+
+  if (isYouTube) {
+    try {
+      const { Ytdl } = require("@distube/ytdl-core");
+      const ytdl = new Ytdl();
+      const info = await ytdl.getInfo(url);
+
+      if (!info || !info.formats || info.formats.length === 0) {
+        throw new Error("No media stream formats returned from YouTube.");
+      }
+
+      // Pick best video format (prefer mp4 container, high resolution)
+      const v =
+        info.formats.find(
+          (f: any) => f.hasVideo && f.url && (f.container === "mp4" || (f.mimeType && f.mimeType.includes("mp4")))
+        ) || info.formats.find((f: any) => f.hasVideo && f.url);
+
+      // Pick best audio format
+      const a =
+        info.formats.find(
+          (f: any) =>
+            f.hasAudio &&
+            f.url &&
+            (f.container === "mp4" || (f.mimeType && (f.mimeType.includes("mp4") || f.mimeType.includes("audio/mp4"))))
+        ) || info.formats.find((f: any) => f.hasAudio && f.url);
+
+      if (!v || !v.url) {
+        throw new Error("Could not extract a valid video stream URL from YouTube.");
+      }
+
+      const ffmpeg = getFFmpegPath();
+      const ffmpegArgs: string[] = ["-y", "-i", v.url];
+
+      if (a && a.url) {
+        ffmpegArgs.push("-i", a.url, "-c:v", "copy", "-c:a", "aac", "-shortest", targetPath);
+      } else {
+        ffmpegArgs.push("-c:v", "copy", targetPath);
+      }
+
+      const res = spawnSync(ffmpeg, ffmpegArgs, {
+        timeout: timeoutMs,
+        maxBuffer: 10 * 1024 * 1024,
+      });
+
+      if (res.status === 0 && fs.existsSync(targetPath) && fs.statSync(targetPath).size > 1000) {
+        return targetPath;
+      }
+
+      const errText = res.stderr ? res.stderr.toString() : `Exit code ${res.status}`;
+      throw new Error(`FFmpeg stream download failed: ${errText.slice(0, 200)}`);
+    } catch (ytErr: any) {
+      console.warn("[RenderStorage] YouTube stream ingestion error:", ytErr.message);
+      throw new Error(
+        `Unable to ingest YouTube video stream directly (${ytErr.message}). YouTube cloud stream protection may be active. Please upload the video file directly via the 'Upload Video' tab, or use a direct MP4 link.`
+      );
+    }
+  }
+
+  // 2. Direct HTTP / HTTPS Video Stream Download
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "PagePulseAI/2.8 (+https://fb-automation-tool-seven.vercel.app)",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 PagePulseAI/2.8",
+        Accept: "*/*",
       },
       signal: controller.signal,
     });
@@ -104,9 +173,27 @@ export async function downloadSourceVideo(
       throw new Error(`Source video download failed with status ${res.status}: ${res.statusText}`);
     }
 
+    const contentType = (res.headers.get("content-type") || "").toLowerCase();
+    if (
+      contentType.includes("text/html") ||
+      contentType.includes("application/json") ||
+      contentType.includes("application/xml")
+    ) {
+      throw new Error(
+        `Remote URL returned an HTML web page or document (${contentType}) instead of a playable video stream. Please ensure the link points directly to a video file (.mp4, .mov, .webm) or upload the file directly.`
+      );
+    }
+
     const arrayBuffer = await res.arrayBuffer();
     if (arrayBuffer.byteLength === 0) {
       throw new Error("Downloaded source video file is empty (0 bytes).");
+    }
+
+    if (arrayBuffer.byteLength < 500) {
+      const textPreview = Buffer.from(arrayBuffer).toString("utf-8");
+      if (textPreview.includes("<!DOCTYPE") || textPreview.includes("<html") || textPreview.includes("{\"error\"")) {
+        throw new Error("The source URL returned an error page or HTML document instead of a valid video stream.");
+      }
     }
 
     fs.writeFileSync(targetPath, Buffer.from(arrayBuffer));
@@ -114,6 +201,62 @@ export async function downloadSourceVideo(
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+/**
+ * Validates that a video file on disk is an authentic, playable video container.
+ */
+export function validateVideoFile(filePath: string): {
+  valid: boolean;
+  probe: VideoProbeResult;
+  error?: string;
+} {
+  if (!filePath || !fs.existsSync(filePath)) {
+    return {
+      valid: false,
+      probe: {
+        duration: 0,
+        width: 1920,
+        height: 1080,
+        resolution: "1920x1080",
+        aspectRatio: "16:9",
+        hasAudio: false,
+      },
+      error: "Source video file does not exist on disk.",
+    };
+  }
+
+  const stat = fs.statSync(filePath);
+  if (stat.size < 1000) {
+    return {
+      valid: false,
+      probe: {
+        duration: 0,
+        width: 1920,
+        height: 1080,
+        resolution: "1920x1080",
+        aspectRatio: "16:9",
+        hasAudio: false,
+      },
+      error: `Source video file is too small (${stat.size} bytes) to be a valid video stream.`,
+    };
+  }
+
+  // Probe with FFprobe
+  const probe = probeVideoFile(filePath);
+  if (probe.duration <= 0) {
+    return {
+      valid: false,
+      probe,
+      error:
+        "Failed to read video stream telemetry from source file. File may be corrupted, an invalid container, or a web page.",
+    };
+  }
+
+  return {
+    valid: true,
+    probe,
+  };
 }
 
 /**

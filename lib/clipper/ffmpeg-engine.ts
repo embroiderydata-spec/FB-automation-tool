@@ -54,6 +54,52 @@ export function getFFmpegPath(): string {
   return "ffmpeg";
 }
 
+// Resolves path to bundled ffprobe binary with Linux /tmp execution support for serverless
+export function getFFprobePath(): string {
+  // 1. Environment variable override
+  if (process.env.FFPROBE_PATH && fs.existsSync(process.env.FFPROBE_PATH)) {
+    return process.env.FFPROBE_PATH;
+  }
+
+  // 2. On Linux (Vercel serverless / container)
+  if (process.platform === "linux") {
+    const tmpBinary = path.join(os.tmpdir(), "ffprobe");
+    if (fs.existsSync(tmpBinary)) {
+      try {
+        fs.chmodSync(tmpBinary, 0o755);
+        return tmpBinary;
+      } catch {}
+    }
+
+    try {
+      const ffprobeStatic = require("ffprobe-static");
+      const staticPath = ffprobeStatic?.path || ffprobeStatic;
+      if (staticPath && typeof staticPath === "string" && fs.existsSync(staticPath)) {
+        try {
+          fs.copyFileSync(staticPath, tmpBinary);
+          fs.chmodSync(tmpBinary, 0o755);
+          return tmpBinary;
+        } catch {
+          return staticPath;
+        }
+      }
+    } catch {}
+
+    return "ffprobe";
+  }
+
+  // 3. On Windows / macOS
+  try {
+    const ffprobeStatic = require("ffprobe-static");
+    const staticPath = ffprobeStatic?.path || ffprobeStatic;
+    if (staticPath && typeof staticPath === "string" && fs.existsSync(staticPath)) {
+      return staticPath;
+    }
+  } catch {}
+
+  return "ffprobe";
+}
+
 export function verifyFFmpegAvailable(): {
   available: boolean;
   path: string;
@@ -77,19 +123,176 @@ export function verifyFFmpegAvailable(): {
   }
 }
 
+export function verifyFFprobeAvailable(): {
+  available: boolean;
+  path: string;
+  version?: string;
+  error?: string;
+} {
+  const binaryPath = getFFprobePath();
+  try {
+    const res = spawnSync(binaryPath, ["-version"], {
+      encoding: "utf-8",
+      maxBuffer: 1024 * 1024,
+      timeout: 5000,
+    });
+    if (res.status === 0) {
+      const firstLine = (res.stdout || "").split("\n")[0] || "ffprobe available";
+      return { available: true, path: binaryPath, version: firstLine };
+    }
+    return { available: false, path: binaryPath, error: res.stderr || `Exit code ${res.status}` };
+  } catch (err: any) {
+    return { available: false, path: binaryPath, error: err.message };
+  }
+}
+
 export interface VideoProbeResult {
   duration: number;
   width: number;
   height: number;
   resolution: string;
+  aspectRatio: "16:9" | "9:16" | "1:1";
+  videoCodec?: string;
+  audioCodec?: string;
+  frameRate?: number;
+  hasAudio: boolean;
+  audioChannels?: number;
+  audioSampleRate?: number;
+  bitrate?: number;
+  sizeBytes?: number;
+  formatName?: string;
 }
 
+/**
+ * Robust video telemetry inspection using real FFprobe JSON output.
+ * Validates real video container streams, codecs, and durations.
+ */
 export function probeVideoFile(filePath: string): VideoProbeResult {
-  const ffmpeg = getFFmpegPath();
+  const defaultEmptyResult: VideoProbeResult = {
+    duration: 0,
+    width: 1920,
+    height: 1080,
+    resolution: "1920x1080",
+    aspectRatio: "16:9",
+    hasAudio: false,
+  };
+
+  if (!filePath || !fs.existsSync(filePath)) {
+    return defaultEmptyResult;
+  }
+
+  let fileSize = 0;
   try {
+    const st = fs.statSync(filePath);
+    fileSize = st.size;
+    if (fileSize < 100) return defaultEmptyResult;
+
+    // Check header for non-media text/HTML files (e.g. error web pages)
+    const fd = fs.openSync(filePath, "r");
+    const buf = Buffer.alloc(Math.min(1024, fileSize));
+    fs.readSync(fd, buf, 0, buf.length, 0);
+    fs.closeSync(fd);
+
+    const header = buf.toString("utf-8").toLowerCase();
+    if (
+      header.includes("<!doctype html") ||
+      header.includes("<html") ||
+      header.includes("{\"error\"") ||
+      header.includes("<error>")
+    ) {
+      return defaultEmptyResult;
+    }
+  } catch {
+    return defaultEmptyResult;
+  }
+
+  // 1. Try real FFprobe JSON extraction first
+  try {
+    const ffprobe = getFFprobePath();
+    const probeArgs = [
+      "-v",
+      "error",
+      "-show_format",
+      "-show_streams",
+      "-of",
+      "json",
+      filePath,
+    ];
+
+    const probeRes = spawnSync(ffprobe, probeArgs, {
+      encoding: "utf-8",
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 15000,
+    });
+
+    if (probeRes.status === 0 && probeRes.stdout) {
+      const data = JSON.parse(probeRes.stdout);
+      const streams: any[] = Array.isArray(data.streams) ? data.streams : [];
+      const format = data.format || {};
+
+      const vStream = streams.find((s) => s.codec_type === "video");
+      const aStream = streams.find((s) => s.codec_type === "audio");
+
+      // Verify valid video stream (filter out pseudo-video like ascii/tty or image covers)
+      const validCodecs = [
+        "h264", "hevc", "h265", "vp8", "vp9", "av1",
+        "mpeg4", "mjpeg", "prores", "theora", "flv1", "wmv3", "vc1",
+      ];
+      const vCodec = vStream?.codec_name?.toLowerCase();
+      const isValidVideo = vCodec && (validCodecs.includes(vCodec) || !["ansi", "tty"].includes(vCodec));
+
+      if (vStream && isValidVideo) {
+        let dur = 0;
+        if (vStream.duration && !isNaN(parseFloat(vStream.duration))) {
+          dur = parseFloat(vStream.duration);
+        } else if (format.duration && !isNaN(parseFloat(format.duration))) {
+          dur = parseFloat(format.duration);
+        }
+
+        const width = parseInt(vStream.width, 10) || 1920;
+        const height = parseInt(vStream.height, 10) || 1080;
+
+        let frameRate = 30;
+        if (vStream.r_frame_rate) {
+          const [num, den] = vStream.r_frame_rate.split("/").map(Number);
+          if (den && den > 0) frameRate = Number((num / den).toFixed(2));
+        }
+
+        let computedAspectRatio: "16:9" | "9:16" | "1:1" = "16:9";
+        const ratio = width / height;
+        if (ratio < 0.75) {
+          computedAspectRatio = "9:16";
+        } else if (ratio >= 0.75 && ratio <= 1.25) {
+          computedAspectRatio = "1:1";
+        }
+
+        return {
+          duration: Number(dur.toFixed(2)),
+          width,
+          height,
+          resolution: `${width}x${height}`,
+          aspectRatio: computedAspectRatio,
+          videoCodec: vStream.codec_name,
+          audioCodec: aStream?.codec_name,
+          frameRate,
+          hasAudio: !!aStream,
+          audioChannels: aStream?.channels ? parseInt(aStream.channels, 10) : undefined,
+          audioSampleRate: aStream?.sample_rate ? parseInt(aStream.sample_rate, 10) : undefined,
+          bitrate: format.bit_rate ? parseInt(format.bit_rate, 10) : undefined,
+          sizeBytes: fileSize,
+          formatName: format.format_name,
+        };
+      }
+    }
+  } catch {}
+
+  // 2. Fallback: Parse ffmpeg -i stderr output
+  try {
+    const ffmpeg = getFFmpegPath();
     const res = spawnSync(ffmpeg, ["-i", filePath], {
       encoding: "utf-8",
       maxBuffer: 10 * 1024 * 1024,
+      timeout: 10000,
     });
     const output = (res.stderr || "") + (res.stdout || "");
 
@@ -112,20 +315,65 @@ export function probeVideoFile(filePath: string): VideoProbeResult {
       height = parseInt(resMatch[2], 10);
     }
 
+    const hasAudio = /Stream.*Audio:/.test(output);
+
+    let fallbackRatio: "16:9" | "9:16" | "1:1" = "16:9";
+    const r = width / height;
+    if (r < 0.75) fallbackRatio = "9:16";
+    else if (r >= 0.75 && r <= 1.25) fallbackRatio = "1:1";
+
     return {
       duration: Number(duration.toFixed(2)),
       width,
       height,
       resolution: `${width}x${height}`,
+      aspectRatio: fallbackRatio,
+      hasAudio,
+      sizeBytes: fileSize,
     };
   } catch {
-    return {
-      duration: 0,
-      width: 1920,
-      height: 1080,
-      resolution: "1920x1080",
-    };
+    return defaultEmptyResult;
   }
+}
+
+/**
+ * Full rendering engine diagnostics.
+ */
+export function runFFmpegDiagnostics() {
+  const ffmpegStatus = verifyFFmpegAvailable();
+  const ffprobeStatus = verifyFFprobeAvailable();
+  const tempDir = path.join(os.tmpdir(), "pagepulse-diagnostics");
+
+  let tempDirWritable = false;
+  try {
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+    const testFile = path.join(tempDir, "write-test.tmp");
+    fs.writeFileSync(testFile, "ok");
+    fs.unlinkSync(testFile);
+    tempDirWritable = true;
+  } catch {}
+
+  const mem = process.memoryUsage();
+
+  return {
+    ready: ffmpegStatus.available && ffprobeStatus.available && tempDirWritable,
+    ffmpeg: ffmpegStatus,
+    ffprobe: ffprobeStatus,
+    tempDir: {
+      path: os.tmpdir(),
+      writable: tempDirWritable,
+    },
+    platform: {
+      os: process.platform,
+      arch: process.arch,
+      nodeVersion: process.version,
+    },
+    memoryMb: {
+      heapUsed: Number((mem.heapUsed / 1024 / 1024).toFixed(1)),
+      heapTotal: Number((mem.heapTotal / 1024 / 1024).toFixed(1)),
+      rss: Number((mem.rss / 1024 / 1024).toFixed(1)),
+    },
+  };
 }
 
 export function formatBytes(bytes: number): string {
@@ -328,10 +576,16 @@ export async function renderVideoClip(
 
       // If drawtext failed due to font issues, retry with base scaling & reframing
       if (stderr.includes("drawtext") || stderr.includes("Fontconfig") || stderr.includes("filter")) {
-        const fallbackFilter =
-          reframing === "blurred_backdrop" && options.aspectRatio === "9:16"
-            ? `split[main][bg];[bg]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight},boxblur=25:5[bgblur];[main]scale=${targetWidth}:-2:force_original_aspect_ratio=decrease[fg];[bgblur][fg]overlay=(W-w)/2:(H-h)/2`
-            : `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight}:(in_w-${targetWidth})/2:${cropY}`;
+        let fallbackFilter = "";
+        if (reframing === "blurred_backdrop" && (options.aspectRatio === "9:16" || options.aspectRatio === "1:1")) {
+          fallbackFilter = `split[main][bg];[bg]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight},boxblur=25:5[bgblur];[main]scale=${targetWidth}:-2:force_original_aspect_ratio=decrease[fg];[bgblur][fg]overlay=(W-w)/2:(H-h)/2`;
+        } else if (reframing === "fit_contain") {
+          fallbackFilter = `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2:black`;
+        } else if (options.aspectRatio === "16:9") {
+          fallbackFilter = `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight}:(in_w-${targetWidth})/2:(in_h-${targetHeight})/2`;
+        } else {
+          fallbackFilter = `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=increase,crop=${targetWidth}:${targetHeight}:(in_w-${targetWidth})/2:${cropY}`;
+        }
 
         const fallbackArgs = [
           "-y",
